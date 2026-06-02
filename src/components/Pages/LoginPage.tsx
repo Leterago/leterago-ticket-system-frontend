@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import { loginAsync, clearLoginError } from "../../store/authSlice";
+import logo from "../../assets/leterago-logo.png";
 
 export default function LoginPage() {
   const dispatch  = useAppDispatch();
@@ -31,9 +32,7 @@ export default function LoginPage() {
 
         {/* Logo + título */}
         <div className="text-center mb-8">
-          <div className="w-12 h-12 bg-[#0047AC] rounded-md flex items-center justify-center mx-auto mb-4">
-            <span className="text-white font-bold text-xl select-none">L</span>
-          </div>
+          <img src={logo} alt="Logo Leterago" className="w-40 h-auto mx-auto mb-4" />
           <h1 className="text-xl font-bold text-gray-900">Mesa de Servicio</h1>
           <p className="text-sm text-gray-400 mt-1">Leterago Dominicana</p>
         </div>
@@ -104,6 +103,17 @@ export default function LoginPage() {
             </button>
           </form>
         </div>
+
+        {/* Crear cuenta */}
+        <p className="text-center text-sm text-gray-500 mt-6">
+          ¿No tienes cuenta?{" "}
+          <button
+            onClick={() => navigate("/register")}
+            className="text-[#0047AC] font-semibold hover:underline"
+          >
+            Crear cuenta
+          </button>
+        </p>
       </div>
     </div>
   );

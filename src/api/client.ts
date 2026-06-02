@@ -35,6 +35,9 @@ export type ServerUser = {
   departments: Array<{ departmentId: DepartmentId; role: "admin" | "participant" | "requester" }>;
 };
 
+// The login / registration response also carries the resolved permission codes.
+export type AuthUser = ServerUser & { permissions: string[] };
+
 export type ServerTicket = {
   id: string;
   title: string;
@@ -248,9 +251,22 @@ export const api = {
 
   // Auth
   login: (email: string, password: string) =>
-    request<ServerUser>("/auth/login", "", {
+    request<AuthUser>("/auth/login", "", {
       method: "POST",
       body: JSON.stringify({ email, password }),
+    }),
+
+  // Self-service registration (2 steps)
+  registerStart: (body: { name: string; email: string; password: string }) =>
+    request<{ ok: true; emailSent: boolean }>("/auth/register/start", "", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  registerVerify: (body: { email: string; code: string }) =>
+    request<AuthUser>("/auth/register/verify", "", {
+      method: "POST",
+      body: JSON.stringify(body),
     }),
 
   // Users

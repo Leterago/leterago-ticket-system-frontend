@@ -24,7 +24,9 @@ Hay tres slices principales:
   }
 }
 ```
-Persistido en `localStorage` bajo la clave `mesa_auth_user`.
+Persistido en `localStorage` bajo la clave `mesa_auth_user`. Incluye además `permissions: string[]` (códigos del rol).
+
+El login (`/login`) y el registro autoservicio (`/register`) producen este mismo objeto. El registro tiene dos pasos: (1) formulario nombre/correo/contraseña — el correo **debe terminar en `@leterago.com.do`** — que dispara el envío de un código; (2) ingreso del código de 6 dígitos. Al verificar, la cuenta se crea como `requester` con acceso a todos los departamentos y se guarda la sesión vía `setCurrentUser`.
 
 ---
 

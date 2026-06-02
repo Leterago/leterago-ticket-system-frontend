@@ -3,6 +3,7 @@ import { createBrowserRouter, RouterProvider, Navigate } from "react-router-dom"
 import "./App.css";
 import RootTemplate from "./components/Layouts/RootTemplate";
 import LoginPage from "./components/Pages/LoginPage";
+import RegisterPage from "./components/Pages/RegisterPage";
 import CreateTicketPage from "./components/Pages/CreateTicketPage";
 import NewTicketFormPage from "./components/Pages/NewTicketFormPage";
 import Tickets from "./components/Pages/Tickets";
@@ -23,6 +24,10 @@ function AppRoutes() {
     {
       path: "/login",
       element: currentUser ? <Navigate to="/" replace /> : <LoginPage />,
+    },
+    {
+      path: "/register",
+      element: currentUser ? <Navigate to="/" replace /> : <RegisterPage />,
     },
     {
       path: "/",
