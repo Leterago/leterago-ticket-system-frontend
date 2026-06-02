@@ -1,11 +1,9 @@
 import { Outlet, useLocation } from "react-router-dom";
 import SideBar from "../Templates/SideBar";
 import NavBar from "../Molecules/NavBar";
-import { useCurrentUser } from "../../store/hooks";
 import { useRef, useEffect } from "react";
 
 const RootTemplate = () => {
-  const currentUser = useCurrentUser();
   const { pathname } = useLocation();
   const scrollRef = useRef<HTMLDivElement>(null);
 

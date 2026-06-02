@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import {
   Plus, Pencil, Trash2, X, Shield, Users, User, Settings,
   ShieldCheck, ChevronRight, Check, Loader2, AlertCircle, Building2,
-  UserX, UserCheck, Clock, Search, ChevronDown,
+  UserX, UserCheck, Clock, Search, ChevronDown, Bell,
 } from "lucide-react";
 import PageHeader from "../Molecules/PageHeader";
 import { useAppDispatch, useAppSelector, useCurrentUser } from "../../store/hooks";
@@ -19,11 +19,11 @@ import { DEPARTMENTS } from "../../config/catalog";
 import type { DepartmentId } from "../../types/types";
 import { getInitials } from "../../lib/initials";
 import { api, ApiError } from "../../api/client";
-import type { RoleDefinition, PermissionsByModule, PermissionEntry, ServerDepartment, ServerCategory } from "../../api/client";
+import type { RoleDefinition, PermissionsByModule, PermissionEntry, ServerDepartment, ServerCategory, ServerNotificationPrefs } from "../../api/client";
 
 // ─── Tab navigation ───────────────────────────────────────────────────────────
 
-type Tab = "usuarios" | "roles" | "departamentos";
+type Tab = "usuarios" | "roles" | "departamentos" | "notificaciones";
 
 export default function ConfigPage() {
   const [activeTab, setActiveTab] = useState<Tab>("usuarios");
@@ -61,11 +61,16 @@ export default function ConfigPage() {
           <Building2 size={14} />
           Departamentos
         </TabButton>
+        <TabButton active={activeTab === "notificaciones"} onClick={() => setActiveTab("notificaciones")}>
+          <Bell size={14} />
+          Notificaciones
+        </TabButton>
       </div>
 
-      {activeTab === "usuarios"      && <UsersTab newUserTick={newUserTick} />}
-      {activeTab === "roles"         && <RolesTab />}
-      {activeTab === "departamentos" && <DepartamentosTab />}
+      {activeTab === "usuarios"       && <UsersTab newUserTick={newUserTick} />}
+      {activeTab === "roles"          && <RolesTab />}
+      {activeTab === "departamentos"  && <DepartamentosTab />}
+      {activeTab === "notificaciones" && <NotificacionesTab />}
     </div>
   );
 }
@@ -299,7 +304,6 @@ function UsersTab({ newUserTick = 0 }: { newUserTick?: number }) {
               )}
               {filteredUsers.map((u) => {
                 const roleOpt = ROLE_OPTIONS.find((r) => r.value === u.role);
-                const isSelf  = u.id === currentUser.id;
                 const la      = formatLastAccess(u.lastAccess);
                 return (
                   <tr key={u.id} className="border-b border-gray-50 hover:bg-blue-50/40 transition-colors">
@@ -1045,12 +1049,13 @@ function UserFormModal({
   initial: AppUser | null;
   isSelf: boolean;
   onClose: () => void;
-  onSubmit: (body: { name: string; email: string; password?: string; role: UserRole; departments: DeptEntry[] }) => void;
+  onSubmit: (body: { name: string; email: string; password?: string; role: UserRole; departments: DeptEntry[]; originDepartmentId: string | null }) => void;
 }) {
   const [name, setName] = useState(initial?.name ?? "");
   const [email, setEmail] = useState(initial?.email ?? "");
   const [password, setPassword] = useState("");
   const [isMaster, setIsMaster] = useState(initial?.role === "master");
+  const [originDepartmentId, setOriginDepartmentId] = useState<string | null>(initial?.originDepartmentId ?? null);
   const [departments, setDepartments] = useState<DeptEntry[]>(
     (initial?.departments ?? []).map((d) => ({
       ...d,
@@ -1090,7 +1095,7 @@ function UserFormModal({
       e.password = "Mínimo 6 caracteres";
     }
     if (Object.keys(e).length > 0) { setErrors(e); return; }
-    onSubmit({ name: name.trim(), email: email.trim(), password: password.length > 0 ? password : undefined, role: derivedRole, departments });
+    onSubmit({ name: name.trim(), email: email.trim(), password: password.length > 0 ? password : undefined, role: derivedRole, departments, originDepartmentId });
   };
 
   return (
@@ -1149,6 +1154,19 @@ function UserFormModal({
                 <span className="ml-auto text-[10px] text-gray-400 italic whitespace-nowrap">desde departamentos</span>
               </div>
             )}
+          </Field>
+
+          <Field label="Departamento de origen" hint="Área a la que pertenece el usuario (para registrar la procedencia en solicitudes)">
+            <select
+              value={originDepartmentId ?? ""}
+              onChange={(e) => setOriginDepartmentId(e.target.value || null)}
+              className="w-full bg-gray-50 border border-gray-200 rounded-md px-3.5 py-2.5 text-sm outline-none focus:border-[#0047AC] focus:ring-2 focus:ring-blue-100"
+            >
+              <option value="">Sin departamento de origen</option>
+              {DEPARTMENT_LIST.map((d) => (
+                <option key={d} value={d}>{DEPARTMENTS[d].label}</option>
+              ))}
+            </select>
           </Field>
 
           <Field label="Departamentos">
@@ -1650,6 +1668,144 @@ function FilterSelect({ value, onChange, label, options, className }: {
             );
           })}
         </ul>
+      )}
+    </div>
+  );
+}
+
+// ─── Notificaciones Tab ───────────────────────────────────────────────────────
+
+type NotifKey = "notifyNuevoTicket" | "notifyResuelto" | "notifyConfirmado";
+
+const ALL_NOTIF_OPTIONS: {
+  key: NotifKey;
+  title: string;
+  description: string;
+  // Shown only to roles that have the relevant permission
+  visibleFor: ("master" | "admin" | "participant" | "requester")[];
+}[] = [
+  {
+    key: "notifyNuevoTicket",
+    title: "Nueva solicitud en mi departamento",
+    description: "Recibe un correo cuando se crea una nueva solicitud en los departamentos donde tienes acceso.",
+    // Only users who can view dept tickets (admin/participant/master) should see this
+    visibleFor: ["master", "admin", "participant"],
+  },
+  {
+    key: "notifyResuelto",
+    title: "Solicitud resuelta",
+    description: "Recibe un correo cuando una solicitud que tienes asignada es marcada como resuelta.",
+    visibleFor: ["master", "admin", "participant"],
+  },
+  {
+    key: "notifyConfirmado",
+    title: "Solicitud confirmada",
+    description: "Recibe un correo cuando una solicitud que creaste es confirmada como completada.",
+    visibleFor: ["master", "admin", "participant", "requester"],
+  },
+];
+
+function NotifToggle({
+  label,
+  description,
+  enabled,
+  loading,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  enabled: boolean;
+  loading: boolean;
+  onChange: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 bg-white border border-gray-200 rounded-lg px-5 py-4">
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-gray-800">{label}</p>
+        <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{description}</p>
+      </div>
+      <button
+        onClick={onChange}
+        disabled={loading}
+        className="shrink-0 flex items-center gap-2 disabled:opacity-60"
+        aria-label={enabled ? "Desactivar" : "Activar"}
+      >
+        {loading && <Loader2 size={13} className="animate-spin text-gray-400" />}
+        <div className={`relative w-11 h-6 rounded-full transition-colors duration-200
+          ${enabled ? "bg-[#0047AC]" : "bg-gray-200"}`}
+        >
+          <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm
+            transition-transform duration-200 ${enabled ? "translate-x-5" : "translate-x-0"}`}
+          />
+        </div>
+      </button>
+    </div>
+  );
+}
+
+function NotificacionesTab() {
+  const currentUser = useCurrentUser();
+  const [prefs, setPrefs] = useState<ServerNotificationPrefs | null>(null);
+  const [saving, setSaving] = useState<NotifKey | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.getNotificationPrefs(currentUser.id)
+      .then(setPrefs)
+      .finally(() => setLoading(false));
+  }, [currentUser.id]);
+
+  const toggle = async (key: NotifKey) => {
+    if (!prefs || saving) return;
+    const next = !prefs[key];
+    const prev = { ...prefs };
+    setPrefs({ ...prefs, [key]: next });
+    setSaving(key);
+    try {
+      const updated = await api.updateNotificationPrefs(currentUser.id, { [key]: next });
+      setPrefs(updated);
+    } catch {
+      setPrefs(prev);
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  // Only show options relevant to this user's role
+  const visibleOptions = ALL_NOTIF_OPTIONS.filter((opt) =>
+    opt.visibleFor.includes(currentUser.role as "master" | "admin" | "participant" | "requester"),
+  );
+
+  return (
+    <div className="max-w-2xl">
+      <div className="mb-6">
+        <h2 className="text-base font-semibold text-gray-900">Preferencias de correo</h2>
+        <p className="text-sm text-gray-500 mt-1">
+          Elige qué notificaciones deseas recibir en{" "}
+          <span className="font-medium text-gray-700">{currentUser.email}</span>.
+        </p>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center gap-2 text-gray-400 py-8">
+          <Loader2 size={16} className="animate-spin" />
+          <span className="text-sm">Cargando preferencias…</span>
+        </div>
+      ) : visibleOptions.length === 0 ? (
+        <p className="text-sm text-gray-400 py-8">No hay preferencias de notificación disponibles para tu rol.</p>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {visibleOptions.map(({ key, title, description }) => (
+            <NotifToggle
+              key={key}
+              label={title}
+              description={description}
+              enabled={prefs ? prefs[key] : true}
+              loading={saving === key}
+              onChange={() => toggle(key)}
+            />
+          ))}
+        </div>
       )}
     </div>
   );

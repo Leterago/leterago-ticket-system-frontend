@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { getInitials } from "../../lib/initials";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -30,15 +31,6 @@ const NO_ASSIGNEE: User = { id: "__none__", name: "Sin asignar", role: "" };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function initials(name: string): string {
-  return name
-    .split(" ")
-    .map((w) => w[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
-}
-
 function colorFor(id: string | number): { bg: string; fg: string } {
   const n = typeof id === "number" ? id : id.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
   return AVATAR_COLORS[n % AVATAR_COLORS.length];
@@ -68,7 +60,7 @@ function Avatar({ user, size = "sm" }: AvatarProps) {
       className={`${sizeClass} rounded-full flex items-center justify-center font-medium shrink-0`}
       style={{ background: c.bg, color: c.fg }}
     >
-      {initials(user.name)}
+      {getInitials(user.name)}
     </div>
   );
 }

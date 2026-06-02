@@ -11,12 +11,10 @@ import { CATEGORIES, getDepartmentForCategory } from "../../config/catalog";
 import { canAssign } from "../../store/permissions";
 import { getCategoryForm } from "../../forms/registry";
 
-type Priority = "low" | "medium" | "high" | "urgent";
-
 export default function NewTicketFormPage() {
   const [title, setTitle]             = useState("");
   const [description, setDescription] = useState("");
-  const [priority, setPriority]       = useState<Priority>("medium");
+  const [priority, setPriority]       = useState<TicketPriority>("medium");
   const [assignedTo, setAssignedTo]   = useState<AssigneeUser | null>(null);
   const [submitted, setSubmitted]     = useState(false);
   const [errors, setErrors]           = useState<Record<string, string>>({});
@@ -210,7 +208,7 @@ export default function NewTicketFormPage() {
             categoryId={categoryId}
             departmentId={departmentId!}
             priority={priority as TicketPriority}
-            onPriorityChange={(p) => setPriority(p as Priority)}
+            onPriorityChange={setPriority}
             canAssign={userCanAssign}
             assigneeUsers={assigneeUsers}
             assignedTo={assignedTo}

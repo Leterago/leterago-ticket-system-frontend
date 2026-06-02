@@ -1,4 +1,5 @@
 import { Search, ChevronLeft, ChevronRight, ChevronDown, Check, CheckCircle2, Loader2 } from "lucide-react";
+import { getInitials } from "../../lib/initials";
 import { formatDate } from "../../lib/formatDate";
 import { useMemo, useState, useRef, useEffect } from "react";
 import type { Ticket } from "../../types/types";
@@ -367,7 +368,7 @@ function TicketRow({ row, onClick }: { row: Ticket; onClick: () => void }) {
       <Td>
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-full bg-blue-100 text-[#0047AC] text-xs font-bold flex items-center justify-center shrink-0">
-            {row.createdBy.split(" ").map((n) => n[0]).slice(0, 2).join("")}
+            {getInitials(row.createdBy)}
           </div>
           <span className="text-gray-700 text-xs whitespace-nowrap">{row.createdBy}</span>
         </div>
@@ -383,7 +384,7 @@ function TicketRow({ row, onClick }: { row: Ticket; onClick: () => void }) {
         {row.assignedTo ? (
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-full bg-[#0047AC] text-white text-xs font-bold flex items-center justify-center shrink-0">
-              {row.assignedTo.split(" ").map((n) => n[0]).slice(0, 2).join("")}
+              {getInitials(row.assignedTo)}
             </div>
             <span className="text-gray-700 text-xs whitespace-nowrap">{row.assignedTo}</span>
           </div>
@@ -468,7 +469,7 @@ function ExtendedSection({
                   <Td>
                     <div className="flex items-center gap-2">
                       <div className="w-8 h-8 rounded-full bg-blue-100 text-[#0047AC] text-xs font-bold flex items-center justify-center shrink-0">
-                        {ticket.createdBy.split(" ").map((n) => n[0]).slice(0, 2).join("")}
+                        {getInitials(ticket.createdBy)}
                       </div>
                       <span className="text-gray-700 text-xs whitespace-nowrap">{ticket.createdBy}</span>
                     </div>
@@ -484,7 +485,7 @@ function ExtendedSection({
                     {ticket.assignedTo ? (
                       <div className="flex items-center gap-2">
                         <div className="w-8 h-8 rounded-full bg-[#0047AC] text-white text-xs font-bold flex items-center justify-center shrink-0">
-                          {ticket.assignedTo.split(" ").map((n) => n[0]).slice(0, 2).join("")}
+                          {getInitials(ticket.assignedTo)}
                         </div>
                         <span className="text-gray-700 text-xs whitespace-nowrap">{ticket.assignedTo}</span>
                       </div>

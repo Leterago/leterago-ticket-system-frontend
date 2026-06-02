@@ -13,6 +13,7 @@ export interface AppUser {
   permissions: string[];
   status: "active" | "inactive" | "pending";
   lastAccess: string | null;
+  originDepartmentId?: string | null;
 }
 
 const STORAGE_KEY = "mesa_auth_user";

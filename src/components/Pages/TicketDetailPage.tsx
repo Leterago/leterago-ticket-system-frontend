@@ -9,8 +9,7 @@ import type { TicketStatus, TicketPriority } from "../../types/types";
 import Badge from "../Atoms/Badged";
 import {
   ArrowLeft,
-  ChevronDown, Pencil, Trash2, X, Check, Settings,
-  TrendingDown, Minus, TrendingUp, TriangleAlert, Download,
+  ChevronDown, Pencil, Trash2, X, Check, Settings, Download,
 } from "lucide-react";
 import { exportMantenimientoDocx } from "../../lib/exportMantenimiento";
 import type { SolicitudMantenimientoPayload } from "../../forms/SolicitudMantenimientoForm";
@@ -20,7 +19,7 @@ import { canEditTicket, canChangeStatus, canAssign, canConfirm } from "../../sto
 import { getCategoryForm } from "../../forms/registry";
 import TicketDetailsPanel from "../Organisms/TicketDetailsPanel";
 import TicketComments from "../Organisms/TicketComments";
-import { formatDate, formatDateTime } from "../../lib/formatDate";
+import { formatDateTime } from "../../lib/formatDate";
 import { api } from "../../api/client";
 import type { TicketEvent } from "../../types/types";
 
@@ -32,27 +31,19 @@ const statusLabels: Record<TicketStatus, string> = {
 const priorityLabels: Record<TicketPriority, string> = {
   urgent: "Urgente", high: "Alta", medium: "Media", low: "Baja",
 };
-const priorityOptions: TicketPriority[] = ["urgent", "high", "medium", "low"];
-
-// ─── Event display ───────────────────────────────────────────────────────────
-const statusDisplayLabels: Record<string, string> = {
-  pending: "Pendiente", in_progress: "En progreso", completed: "Resuelto",
-  confirmed: "Confirmado", canceled: "Cancelado",
-};
-const priorityDisplayLabels: Record<string, string> = {
-  urgent: "Urgente", high: "Alta", medium: "Media", low: "Baja",
-};
 
 function eventDisplay(e: TicketEvent): { title: string; color: string } {
+  const sl = statusLabels as Record<string, string>;
+  const pl = priorityLabels as Record<string, string>;
   switch (e.type) {
-    case "created":          return { title: "Ticket creado",                                          color: "bg-[#0047AC]"   };
-    case "status_changed":   return { title: `Estado → ${statusDisplayLabels[e.to ?? ""] ?? e.to}`,   color: "bg-emerald-500" };
-    case "assigned":         return { title: `Asignado a ${e.to}`,                                    color: "bg-indigo-400"  };
-    case "unassigned":       return { title: "Asignación removida",                                   color: "bg-orange-400"  };
-    case "priority_changed": return { title: `Prioridad → ${priorityDisplayLabels[e.to ?? ""] ?? e.to}`, color: "bg-amber-400" };
-    case "title_changed":    return { title: "Título actualizado",                                    color: "bg-gray-400"    };
-    case "payload_updated":  return { title: "Detalles actualizados",                                 color: "bg-purple-400"  };
-    default:                 return { title: e.type,                                                  color: "bg-gray-400"    };
+    case "created":          return { title: "Ticket creado",                                color: "bg-[#0047AC]"   };
+    case "status_changed":   return { title: `Estado → ${sl[e.to ?? ""] ?? e.to}`,          color: "bg-emerald-500" };
+    case "assigned":         return { title: `Asignado a ${e.to}`,                          color: "bg-indigo-400"  };
+    case "unassigned":       return { title: "Asignación removida",                         color: "bg-orange-400"  };
+    case "priority_changed": return { title: `Prioridad → ${pl[e.to ?? ""] ?? e.to}`,       color: "bg-amber-400"   };
+    case "title_changed":    return { title: "Título actualizado",                          color: "bg-gray-400"    };
+    case "payload_updated":  return { title: "Detalles actualizados",                       color: "bg-purple-400"  };
+    default:                 return { title: e.type,                                        color: "bg-gray-400"    };
   }
 }
 
@@ -279,7 +270,7 @@ export default function TicketDetail() {
           {/* Left: back + ID + badges */}
           <div className="flex items-center gap-3 flex-wrap">
             <button
-              onClick={() => navigate(currentUser.role === "user" ? "/new-ticket" : "/tickets")}
+              onClick={() => navigate(-1)}
               className="p-2 rounded-md hover:bg-gray-100 text-gray-500 transition-all"
             >
               <ArrowLeft size={18} />

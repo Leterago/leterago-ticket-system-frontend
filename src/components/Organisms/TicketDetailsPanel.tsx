@@ -1,4 +1,4 @@
-import { TrendingDown, Minus, TrendingUp, TriangleAlert, UserCheck } from "lucide-react";
+import { TrendingDown, Minus, TrendingUp, TriangleAlert } from "lucide-react";
 import type { CategoryId, DepartmentId, TicketPriority } from "../../types/types";
 import { CATEGORIES, DEPARTMENTS } from "../../config/catalog";
 import AssigneePicker, { type User as AssigneeUser } from "./AssigneePicker";

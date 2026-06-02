@@ -78,6 +78,3 @@ export type TicketEvent = {
   createdAt: string;
 };
 
-// Legacy aliases so old imports don't break during transition
-export type Department = DepartmentId;
-export type TicketType = CategoryId;

@@ -31,6 +31,7 @@ export type ServerUser = {
   role: "master" | "admin" | "participant" | "requester";
   status: "active" | "inactive" | "pending";
   lastAccess: string | null;
+  originDepartmentId: string | null;
   departments: Array<{ departmentId: DepartmentId; role: "admin" | "participant" | "requester" }>;
 };
 
@@ -193,6 +194,7 @@ export type CreateUserBody = {
   password: string;
   role: "master" | "admin" | "participant" | "requester";
   departments: Array<{ departmentId: DepartmentId; role: "admin" | "participant" | "requester" }>;
+  originDepartmentId?: string | null;
 };
 
 export type UpdateUserBody = {
@@ -202,6 +204,13 @@ export type UpdateUserBody = {
   role?: "master" | "admin" | "participant" | "requester";
   status?: "active" | "inactive" | "pending";
   departments?: Array<{ departmentId: DepartmentId; role: "admin" | "participant" | "requester" }>;
+  originDepartmentId?: string | null;
+};
+
+export type ServerNotificationPrefs = {
+  notifyNuevoTicket: boolean;
+  notifyResuelto: boolean;
+  notifyConfirmado: boolean;
 };
 
 export type ServerComment = {
@@ -209,6 +218,7 @@ export type ServerComment = {
   ticketId: string;
   userId: string;
   body: string;
+  editedAt: string | null;
   createdAt: string;
   user: { id: string; name: string };
 };
@@ -316,6 +326,15 @@ export const api = {
       body: JSON.stringify({ body }),
     }),
 
+  updateComment: (userId: string, ticketId: string, commentId: string, body: string) =>
+    request<ServerComment>(`/tickets/${ticketId}/comments/${commentId}`, userId, {
+      method: "PATCH",
+      body: JSON.stringify({ body }),
+    }),
+
+  deleteComment: (userId: string, ticketId: string, commentId: string) =>
+    request<void>(`/tickets/${ticketId}/comments/${commentId}`, userId, { method: "DELETE" }),
+
   // Catalog
   getCatalog: (userId: string) =>
     request<ServerDepartment[]>("/catalog", userId),
@@ -328,6 +347,16 @@ export const api = {
 
   updateCategory: (userId: string, id: string, body: { name?: string; description?: string | null }) =>
     request<ServerCategory>(`/catalog/categories/${id}`, userId, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
+  // Notification preferences
+  getNotificationPrefs: (userId: string) =>
+    request<ServerNotificationPrefs>("/users/me/notification-prefs", userId),
+
+  updateNotificationPrefs: (userId: string, body: Partial<ServerNotificationPrefs>) =>
+    request<ServerNotificationPrefs>("/users/me/notification-prefs", userId, {
       method: "PATCH",
       body: JSON.stringify(body),
     }),

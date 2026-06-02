@@ -2,9 +2,6 @@ import {
   CircleCheckBig,
   CircleX,
   TriangleAlert,
-  Minus,
-  TrendingDown,
-  TrendingUp,
   Clock,
   CircleDashed,
   BadgeCheck,
@@ -21,7 +18,6 @@ interface BadgeProps {
     | "completed"
     | "confirmed"
     | "canceled";
-  label?: string;
 }
 
 const Badge = ({ variant }: Readonly<BadgeProps>) => {

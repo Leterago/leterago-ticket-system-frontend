@@ -25,6 +25,7 @@ function adapt(u: ServerUser): AppUser {
     role: u.role,
     status: u.status,
     lastAccess: u.lastAccess,
+    originDepartmentId: u.originDepartmentId,
     departments: u.departments,
     permissions: [],
   };

@@ -19,10 +19,6 @@ const SideBar = () => {
 
   const visibleTaps = allTaps.filter((t) => t.roles.includes(currentUser.role));
 
-  const handleTapClick = (path: string) => {
-    navigate(path);
-  };
-
   return (
     <div className="w-64 min-h-screen h-full p-4 border-r border-gray-100 bg-white flex flex-col">
       <div className="mb-8 px-2">
@@ -35,7 +31,7 @@ const SideBar = () => {
             label={tap.label}
             icon={tap.icon}
             active={location.pathname === tap.path}
-            onClick={() => handleTapClick(tap.path)}
+            onClick={() => navigate(tap.path)}
           />
         ))}
       </nav>

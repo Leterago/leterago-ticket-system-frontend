@@ -43,7 +43,6 @@ const cateringOptions = [
   "Cena",
 ];
 
-
 export default function SolicitudReunionForm({
   value,
   onChange,
