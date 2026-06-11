@@ -24,7 +24,8 @@ type ReadOnlyProps = {
   departmentId: DepartmentId;
   createdBy: string;
   assignedToName?: string;
-  currentUserName?: string;
+  assignedToId?: string | null;
+  currentUserId?: string;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -78,7 +79,7 @@ export default function TicketDetailsPanel(props: Props) {
         <>
           <Field label="ASIGNADO A">
             {props.assignedToName
-              ? <UserChip name={props.assignedToName} badge={props.assignedToName === props.currentUserName ? "Tú" : undefined} />
+              ? <UserChip name={props.assignedToName} badge={props.assignedToId != null && props.assignedToId === props.currentUserId ? "Tú" : undefined} />
               : <p className="text-gray-400 italic text-sm">Sin asignar</p>
             }
           </Field>

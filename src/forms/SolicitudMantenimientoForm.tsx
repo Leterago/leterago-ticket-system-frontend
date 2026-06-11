@@ -32,6 +32,7 @@ export type SolicitudMantenimientoPayload = {
   ubicacion: UbicacionMantenimiento;
   otraUbicacion: string;
   codigo: string;
+  noOrden: string;
   registros: RegistroTrabajo[];
   observaciones: string;
 };
@@ -41,6 +42,7 @@ export const defaultValue: SolicitudMantenimientoPayload = {
   ubicacion: "",
   otraUbicacion: "",
   codigo: "",
+  noOrden: "",
   registros: [
     { fecha: "", realizadoPor: "", horaInicio: "", horaTermino: "" },
     { fecha: "", realizadoPor: "", horaInicio: "", horaTermino: "" },
@@ -174,6 +176,18 @@ export default function SolicitudMantenimientoForm({
       {showExecSection && (
         <div className="flex flex-col gap-4 border border-gray-200 p-6 text-gray-700 rounded-xl bg-white">
           <h2 className="text-sm font-semibold">Registro de Ejecución</h2>
+
+          <div className="md:max-w-xs">
+            <label className="text-xs text-gray-400 block mb-1">No. de Orden</label>
+            <input
+              type="text"
+              disabled={readOnly}
+              value={value.noOrden ?? ""}
+              onChange={(e) => set("noOrden", e.target.value)}
+              placeholder="Número de orden de trabajo"
+              className={inputBase}
+            />
+          </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-sm">

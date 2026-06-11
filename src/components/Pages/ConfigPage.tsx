@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import PageHeader from "../Molecules/PageHeader";
 import { useAppDispatch, useAppSelector, useCurrentUser } from "../../store/hooks";
+import { canManageUsers, canManageRoles, canManageDepartments } from "../../store/permissions";
 import {
   fetchUsers,
   createUserAsync,
@@ -26,15 +27,28 @@ import type { RoleDefinition, PermissionsByModule, PermissionEntry, ServerDepart
 type Tab = "usuarios" | "roles" | "departamentos" | "notificaciones";
 
 export default function ConfigPage() {
-  const [activeTab, setActiveTab] = useState<Tab>("usuarios");
+  const currentUser = useCurrentUser();
   const [newUserTick, setNewUserTick] = useState(0);
+
+  // Notificaciones is available to everyone (own preferences); the rest of the
+  // sections appear only when the user has the matching permission.
+  const visibleTabs = useMemo(() => {
+    const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [];
+    if (canManageUsers(currentUser))       tabs.push({ id: "usuarios",      label: "Usuarios",         icon: <User size={14} /> });
+    if (canManageRoles(currentUser))       tabs.push({ id: "roles",         label: "Roles y Permisos", icon: <ShieldCheck size={14} /> });
+    if (canManageDepartments(currentUser)) tabs.push({ id: "departamentos", label: "Departamentos",    icon: <Building2 size={14} /> });
+    tabs.push({ id: "notificaciones", label: "Notificaciones", icon: <Bell size={14} /> });
+    return tabs;
+  }, [currentUser]);
+
+  const [activeTab, setActiveTab] = useState<Tab>(visibleTabs[0].id);
 
   return (
     <div className="flex flex-col w-full min-h-screen p-6 gap-5 max-w-screen-2xl mx-auto">
       <div className="flex justify-between items-start gap-4 flex-wrap">
         <PageHeader
           title="Configuración"
-          description="Gestión de usuarios, roles y permisos del sistema."
+          description="Gestión de tu cuenta y, según tus permisos, del sistema."
         />
         {activeTab === "usuarios" && (
           <button
@@ -49,22 +63,12 @@ export default function ConfigPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-gray-200">
-        <TabButton active={activeTab === "usuarios"} onClick={() => setActiveTab("usuarios")}>
-          <User size={14} />
-          Usuarios
-        </TabButton>
-        <TabButton active={activeTab === "roles"} onClick={() => setActiveTab("roles")}>
-          <ShieldCheck size={14} />
-          Roles y Permisos
-        </TabButton>
-        <TabButton active={activeTab === "departamentos"} onClick={() => setActiveTab("departamentos")}>
-          <Building2 size={14} />
-          Departamentos
-        </TabButton>
-        <TabButton active={activeTab === "notificaciones"} onClick={() => setActiveTab("notificaciones")}>
-          <Bell size={14} />
-          Notificaciones
-        </TabButton>
+        {visibleTabs.map((tab) => (
+          <TabButton key={tab.id} active={activeTab === tab.id} onClick={() => setActiveTab(tab.id)}>
+            {tab.icon}
+            {tab.label}
+          </TabButton>
+        ))}
       </div>
 
       {activeTab === "usuarios"       && <UsersTab newUserTick={newUserTick} />}
@@ -181,7 +185,7 @@ function UsersTab({ newUserTick = 0 }: { newUserTick?: number }) {
       if (deptFilter !== "all" && !u.departments.some((d) => d.departmentId === deptFilter)) return false;
       if (search) {
         const q = search.toLowerCase();
-        return u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q);
+        return u.name.toLowerCase().includes(q) || (u.email ?? "").toLowerCase().includes(q);
       }
       return true;
     });
@@ -1059,7 +1063,7 @@ function UserFormModal({
   const [departments, setDepartments] = useState<DeptEntry[]>(
     (initial?.departments ?? []).map((d) => ({
       ...d,
-      role: (d.role === "user" ? "participant" : d.role) as DeptEntry["role"],
+      role: ((d.role as string) === "user" ? "participant" : d.role) as DeptEntry["role"],
     })),
   );
   const [errors, setErrors] = useState<Record<string, string>>({});

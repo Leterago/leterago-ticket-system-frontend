@@ -17,8 +17,6 @@ import { fetchTickets } from "./store/ticketsSlice";
 function AppRoutes() {
   const currentUser = useAppSelector((s) => s.auth.currentUser);
   const isRestricted = currentUser?.role === "requester" || currentUser?.role === "participant";
-  const isMaster     = currentUser?.role === "master";
-  const canConfig    = isMaster || (currentUser?.permissions ?? []).includes("admin.roles");
 
   const router = createBrowserRouter([
     {
@@ -39,7 +37,7 @@ function AppRoutes() {
         { path: "/create-ticket",     element: <NewTicketFormPage /> },
         { path: "/ticket-detail/:id", element: <TicketDetail /> },
         { path: "/ticket-detail",     element: <TicketDetail /> },
-        { path: "/config",            element: canConfig ? <ConfigPage /> : <Navigate to="/" replace /> },
+        { path: "/config",            element: <ConfigPage /> },
       ],
     },
     { path: "*", element: <Navigate to={currentUser ? "/" : "/login"} replace /> },

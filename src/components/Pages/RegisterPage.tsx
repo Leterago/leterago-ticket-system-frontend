@@ -4,7 +4,7 @@ import { Eye, EyeOff, ArrowLeft } from "lucide-react";
 import { useAppDispatch } from "../../store/hooks";
 import { setCurrentUser } from "../../store/authSlice";
 import { api, ApiError } from "../../api/client";
-import logo from "../../assets/leterago-logo.png";
+import Logo from "../Atoms/Logo";
 
 const EMAIL_DOMAIN = "@leterago.com.do";
 
@@ -86,7 +86,7 @@ export default function RegisterPage() {
 
         {/* Logo + título */}
         <div className="text-center mb-8">
-          <img src={logo} alt="Logo Leterago" className="w-40 h-auto mx-auto mb-4" />
+          <Logo className="w-40 h-auto mx-auto mb-4" />
           <h1 className="text-xl font-bold text-gray-900">Mesa de Servicio</h1>
           <p className="text-sm text-gray-400 mt-1">Leterago Dominicana</p>
         </div>

@@ -4,6 +4,7 @@ import {
   updateTicketAsync,
   deleteTicketAsync,
   fetchTicketDetailAsync,
+  rateTicketAsync,
 } from "../../store/ticketsSlice";
 import type { TicketStatus, TicketPriority } from "../../types/types";
 import Badge from "../Atoms/Badged";
@@ -18,6 +19,7 @@ import { type User as AssigneeUser } from "../Organisms/AssigneePicker";
 import { canEditTicket, canChangeStatus, canAssign, canConfirm } from "../../store/permissions";
 import { getCategoryForm } from "../../forms/registry";
 import TicketDetailsPanel from "../Organisms/TicketDetailsPanel";
+import TicketRatingCard from "../Organisms/TicketRatingCard";
 import TicketComments from "../Organisms/TicketComments";
 import { formatDateTime } from "../../lib/formatDate";
 import { api } from "../../api/client";
@@ -43,6 +45,7 @@ function eventDisplay(e: TicketEvent): { title: string; color: string } {
     case "priority_changed": return { title: `Prioridad → ${pl[e.to ?? ""] ?? e.to}`,       color: "bg-amber-400"   };
     case "title_changed":    return { title: "Título actualizado",                          color: "bg-gray-400"    };
     case "payload_updated":  return { title: "Detalles actualizados",                       color: "bg-purple-400"  };
+    case "rated":            return { title: `Calificado con ${e.to} ★`,                    color: "bg-amber-400"   };
     default:                 return { title: e.type,                                        color: "bg-gray-400"    };
   }
 }
@@ -152,6 +155,21 @@ export default function TicketDetail() {
     ? canConfirm(currentUser, ticket) && ticket.status === "completed"
     : false;
 
+  // Rating: only the creator can rate, and only once the ticket is resolved.
+  const canRate = !!ticket
+    && ticket.createdById === currentUser.id
+    && (ticket.status === "completed" || ticket.status === "confirmed");
+
+  const submitRating = async (value: number, comment: string) => {
+    if (!ticket || ratingSaving) return;
+    setRatingSaving(true);
+    try {
+      await dispatch(rateTicketAsync({ id: ticket.id, value, comment }));
+    } finally {
+      setRatingSaving(false);
+    }
+  };
+
   // "confirmed" is gated by role + transition (only admin/master, only from "completed").
   // Always include it if it's the current value, so the select keeps a valid option.
   const allowedStatuses: TicketStatus[] = statusOptions.filter((s) => {
@@ -165,6 +183,7 @@ export default function TicketDetail() {
   const [showDelete,      setShowDelete]      = useState(false);
   const [showActionsMenu, setShowActionsMenu] = useState(false);
   const [exporting,       setExporting]       = useState(false);
+  const [ratingSaving,    setRatingSaving]    = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -231,7 +250,9 @@ export default function TicketDetail() {
     setEditDescription(ticket.description ?? "");
     setEditStatus(ticket.status);
     setEditPriority(ticket.priority);
-    const match = assigneeUsers.find((u) => u.name === ticket.assignedTo) ?? null;
+    const match = ticket.assignedToId
+      ? assigneeUsers.find((u) => String(u.id) === String(ticket.assignedToId)) ?? null
+      : null;
     setEditAssignedTo(match);
     setEditPayload({ ...(formDef?.defaultValue as Record<string, unknown> ?? {}), ...(payloadForEdit as Record<string, unknown> ?? {}) });
     setEditing(true);
@@ -245,7 +266,7 @@ export default function TicketDetail() {
         description:  editDescription,
         status:       editStatus,
         priority:     editPriority,
-        assignedToId: editAssignedTo?.id ?? null,
+        assignedToId: editAssignedTo ? String(editAssignedTo.id) : null,
         payload:      formDef ? editPayload : undefined,
       },
     }));
@@ -470,9 +491,20 @@ export default function TicketDetail() {
                 departmentId={ticket.departmentId}
                 createdBy={ticket.createdBy}
                 assignedToName={ticket.assignedTo}
-                currentUserName={currentUser.name}
+                assignedToId={ticket.assignedToId}
+                currentUserId={currentUser.id}
                 createdAt={ticket.createdAt}
                 updatedAt={ticket.updatedAt}
+              />
+            )}
+
+            {/* Satisfaction rating */}
+            {!editing && (
+              <TicketRatingCard
+                rating={ticket.rating}
+                canRate={canRate}
+                saving={ratingSaving}
+                onSubmit={submitRating}
               />
             )}
 

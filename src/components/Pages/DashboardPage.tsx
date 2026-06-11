@@ -1,4 +1,4 @@
-import { BarChart3, CheckCircle, AlertTriangle, Clock, Zap, CalendarDays, ChevronDown, Check, X } from "lucide-react";
+import { BarChart3, CheckCircle, AlertTriangle, Clock, Zap, CalendarDays, ChevronDown, Check, X, Star } from "lucide-react";
 import PageHeader from "../Molecules/PageHeader";
 import { useAppSelector, useCurrentUser } from "../../store/hooks";
 import { useMemo, useState, useRef, useEffect } from "react";
@@ -386,6 +386,14 @@ export default function DashboardPage() {
 
   const completionRate = total > 0 ? Math.round((completed / total) * 100) : 0;
 
+  // Satisfaction: average of rated tickets + response rate (rated / rateable).
+  const ratedTickets = visible.filter((t) => t.rating != null);
+  const rateable      = visible.filter((t) => t.status === "completed" || t.status === "confirmed");
+  const avgRating     = ratedTickets.length
+    ? ratedTickets.reduce((s, t) => s + (t.rating?.value ?? 0), 0) / ratedTickets.length
+    : null;
+  const responseRate  = rateable.length ? Math.round((ratedTickets.length / rateable.length) * 100) : 0;
+
   // Resolution stats fetched from server (event-based: assigned → status_changed:completed)
   const [resStats, setResStats] = useState<ResolutionStats>({ avgMs: null, count: 0 });
   useEffect(() => {
@@ -433,11 +441,17 @@ export default function DashboardPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
         <StatCard title="Total Tickets"  value={String(total)}      icon={<BarChart3 size={32} className="text-[#0047AC]" />} />
         <StatCard title="Completados"    value={String(completed)}  icon={<CheckCircle size={32} className="text-[#0047AC]" />} />
         <StatCard title="En Progreso"    value={String(inProgress)} icon={<Clock size={32} className="text-[#0047AC]" />} />
         <StatCard title="Pendientes"     value={String(pending)}    icon={<AlertTriangle size={32} className="text-[#0047AC]" />} />
+        <StatCard
+          title="Satisfacción"
+          value={avgRating !== null ? `${avgRating.toFixed(1)} / 5` : "—"}
+          icon={<Star size={32} className="text-amber-400 fill-amber-400" />}
+          sub={avgRating !== null ? `${ratedTickets.length} calif · ${responseRate}% resp.` : "Sin calificaciones"}
+        />
       </div>
 
       {/* Charts row */}
@@ -532,8 +546,8 @@ export default function DashboardPage() {
 
 // ─── Sub-components (unchanged styles) ───────────────────────────────────────
 
-function StatCard({ title, value, icon }: {
-  title: string; value: string; icon: React.ReactNode;
+function StatCard({ title, value, icon, sub }: {
+  title: string; value: string; icon: React.ReactNode; sub?: React.ReactNode;
 }) {
   return (
     <div className="bg-white border border-gray-200 rounded-lg p-5">
@@ -542,6 +556,7 @@ function StatCard({ title, value, icon }: {
         {icon}
       </div>
       <h3 className="text-4xl font-bold text-gray-900">{value}</h3>
+      {sub && <p className="text-xs text-gray-400 mt-1">{sub}</p>}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { Outlet, useLocation } from "react-router-dom";
 import SideBar from "../Templates/SideBar";
 import NavBar from "../Molecules/NavBar";
+import Toaster from "../Organisms/Toaster";
 import { useRef, useEffect } from "react";
 
 const RootTemplate = () => {
@@ -22,6 +23,7 @@ const RootTemplate = () => {
           <Outlet />
         </div>
       </div>
+      <Toaster />
     </div>
   );
 

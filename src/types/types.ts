@@ -36,9 +36,15 @@ export type Ticket = {
 
   createdById: string;
   createdBy: string;
+  /** Assignee user id — use this for identity/permission checks. */
+  assignedToId?: string | null;
+  /** Assignee display name — for rendering only; may change, never match on it. */
   assignedTo?: string;
 
   executionAt?: string;
+
+  /** Satisfaction rating, grouped under one key. Null/undefined until rated. */
+  rating?: TicketRating | null;
 
   /** Category-specific data (loaded only on detail responses, undefined otherwise). */
   payload?: unknown;
@@ -46,6 +52,13 @@ export type Ticket = {
 
   createdAt: string;
   updatedAt: string;
+};
+
+export type TicketRating = {
+  value: number;          // 1–5
+  comment?: string | null;
+  at?: string | null;     // ISO
+  by?: string | null;     // rater User.id
 };
 
 // ─── Catalog types (kept for compatibility) ──────────────────────────────────
@@ -65,7 +78,8 @@ export type TicketEventType =
   | "unassigned"
   | "priority_changed"
   | "title_changed"
-  | "payload_updated";
+  | "payload_updated"
+  | "rated";
 
 export type TicketEvent = {
   id: string;

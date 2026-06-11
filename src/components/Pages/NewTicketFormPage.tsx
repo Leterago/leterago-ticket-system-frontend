@@ -48,7 +48,7 @@ export default function NewTicketFormPage() {
     return canAssign(currentUser, {
       id: "", title: "", departmentId, categoryId,
       status: "pending", priority: "medium",
-      createdBy: currentUser.name, createdAt: "", updatedAt: "",
+      createdById: currentUser.id, createdBy: currentUser.name, createdAt: "", updatedAt: "",
     });
   }, [currentUser, departmentId, categoryId]);
 
@@ -82,7 +82,7 @@ export default function NewTicketFormPage() {
         departmentId,
         categoryId,
         priority:     priority as TicketPriority,
-        assignedToId: userCanAssign ? assignedTo?.id : undefined,
+        assignedToId: userCanAssign && assignedTo ? String(assignedTo.id) : undefined,
         payload:      formDef ? payload : undefined,
       })
     );

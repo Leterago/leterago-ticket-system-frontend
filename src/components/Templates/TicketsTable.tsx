@@ -36,7 +36,7 @@ function TicketsTable({ viewMode = "compact" }: { viewMode?: "compact" | "extend
       (t) =>
         accessibleCats.includes(t.categoryId) ||
         t.createdById === currentUser.id ||
-        t.assignedTo === currentUser.name,
+        t.assignedToId === currentUser.id,
     );
   }, [tickets, currentUser]); // eslint-disable-line react-hooks/exhaustive-deps
 

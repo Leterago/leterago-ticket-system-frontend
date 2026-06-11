@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import { loginAsync, clearLoginError } from "../../store/authSlice";
-import logo from "../../assets/leterago-logo.png";
+import Logo from "../Atoms/Logo";
 
 export default function LoginPage() {
   const dispatch  = useAppDispatch();
@@ -32,7 +32,7 @@ export default function LoginPage() {
 
         {/* Logo + título */}
         <div className="text-center mb-8">
-          <img src={logo} alt="Logo Leterago" className="w-40 h-auto mx-auto mb-4" />
+          <Logo className="w-40 h-auto mx-auto mb-4" />
           <h1 className="text-xl font-bold text-gray-900">Mesa de Servicio</h1>
           <p className="text-sm text-gray-400 mt-1">Leterago Dominicana</p>
         </div>

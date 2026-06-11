@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Download, Plus, List, LayoutDashboard } from "lucide-react";
 import TicketsTable from "../Templates/TicketsTable";
 import PageHeader from "../Molecules/PageHeader";
@@ -12,9 +12,17 @@ const Tickets = () => {
   const navigate = useNavigate();
   const { tickets } = useAppSelector((s) => s.tickets);
   const currentUser = useCurrentUser();
-  const [viewMode, setViewMode] = useState<"compact" | "extended">("compact");
+  const [viewMode, setViewMode] = useState<"compact" | "extended">(
+    () => (localStorage.getItem("mesa_tickets_view") === "extended" ? "extended" : "compact"),
+  );
 
   const isAdminUser = canViewExtended(currentUser);
+
+  // Recuerda en el navegador la última vista elegida (compacta/extendida)
+  // para que se mantenga entre recargas y reinicios de sesión.
+  useEffect(() => {
+    localStorage.setItem("mesa_tickets_view", viewMode);
+  }, [viewMode]);
 
   const workingDeptIds: DepartmentId[] = currentUser.role === "master"
     ? (Object.keys(DEPARTMENTS) as DepartmentId[])
@@ -32,7 +40,7 @@ const Tickets = () => {
             return (
               cats.includes(t.categoryId) ||
               t.createdById === currentUser.id ||
-              t.assignedTo === currentUser.name
+              t.assignedToId === currentUser.id
             );
           });
 

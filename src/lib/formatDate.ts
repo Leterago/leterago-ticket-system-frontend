@@ -10,6 +10,19 @@ export function formatDate(value: string | Date | null | undefined): string {
   return `${day} ${month.slice(0, 3)}. ${year}`;
 }
 
+export function formatRelative(ts: number): string {
+  const diffMs = Date.now() - ts;
+  const sec = Math.floor(diffMs / 1000);
+  if (sec < 45) return "ahora";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `hace ${min} min`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `hace ${hr} h`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `hace ${day} d`;
+  return formatDate(new Date(ts));
+}
+
 export function formatDateTime(value: string | Date | null | undefined): string {
   if (!value) return "—";
   const date = typeof value === "string" ? new Date(value) : value;

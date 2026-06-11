@@ -13,6 +13,34 @@ import {
   type UpdateTicketBody,
 } from "../api/client";
 import type { RootState } from "./store";
+import { notify } from "./notificationsSlice";
+
+const STATUS_LABELS: Record<TicketStatus, string> = {
+  pending: "Pendiente", in_progress: "En progreso", completed: "Resuelto",
+  confirmed: "Confirmado", canceled: "Cancelado",
+};
+const PRIORITY_LABELS: Record<TicketPriority, string> = {
+  urgent: "Urgente", high: "Alta", medium: "Media", low: "Baja",
+};
+
+/** Builds a contextual success message by diffing the ticket before/after the update. */
+function buildUpdateMessage(
+  before: { status?: TicketStatus; priority?: TicketPriority; assignedTo?: string } | undefined,
+  next: Ticket,
+): { title: string; message?: string } {
+  if (before && before.status !== next.status) {
+    return { title: `Estado actualizado a "${STATUS_LABELS[next.status]}"`, message: `Ticket ${next.id}` };
+  }
+  if (before && (before.assignedTo ?? null) !== (next.assignedTo ?? null)) {
+    return next.assignedTo
+      ? { title: "Ticket asignado satisfactoriamente", message: `Asignado a ${next.assignedTo}` }
+      : { title: "Asignación removida", message: `Ticket ${next.id}` };
+  }
+  if (before && before.priority !== next.priority) {
+    return { title: "Prioridad actualizada", message: `${PRIORITY_LABELS[next.priority]} · ${next.id}` };
+  }
+  return { title: "Ticket actualizado", message: `Ticket ${next.id}` };
+}
 
 function adaptServerTicket(t: ServerTicket): Ticket {
   return {
@@ -25,8 +53,10 @@ function adaptServerTicket(t: ServerTicket): Ticket {
     priority: t.priority,
     createdById: t.createdById,
     createdBy: t.createdBy?.name ?? t.createdById,
+    assignedToId: t.assignedToId ?? undefined,
     assignedTo: t.assignedTo?.name ?? undefined,
     executionAt: t.executionAt ?? undefined,
+    rating: t.rating ?? undefined,
     payload: t.payload ?? undefined,
     payloadVersion: t.payloadVersion,
     createdAt: t.createdAt,
@@ -83,7 +113,7 @@ export const createTicketAsync = createAsyncThunk<
     payload?: unknown;
   },
   { state: RootState; rejectValue: string }
->("tickets/create", async (input, { getState, rejectWithValue }) => {
+>("tickets/create", async (input, { getState, dispatch, rejectWithValue }) => {
   try {
     const userId = requireUserId(getState());
     const server = await api.createTicket(userId, {
@@ -95,9 +125,18 @@ export const createTicketAsync = createAsyncThunk<
       assignedToId: input.assignedToId || undefined,
       payload: input.payload,
     });
-    return adaptServerTicket(server);
+    const next = adaptServerTicket(server);
+    dispatch(notify({
+      kind: "success",
+      title: "Ticket creado",
+      message: `${next.id} · ${next.title}`,
+      link: `/ticket-detail/${next.id}`,
+    }));
+    return next;
   } catch (e) {
-    return rejectWithValue(e instanceof ApiError ? e.message : "Network error");
+    const msg = e instanceof ApiError ? e.message : "Network error";
+    dispatch(notify({ kind: "error", title: "No se pudo crear el ticket", message: msg }));
+    return rejectWithValue(msg);
   }
 });
 
@@ -115,7 +154,12 @@ export const updateTicketAsync = createAsyncThunk<
   Ticket,
   { id: string; changes: UpdateTicketChanges },
   { state: RootState; rejectValue: string }
->("tickets/update", async ({ id, changes }, { getState, rejectWithValue }) => {
+>("tickets/update", async ({ id, changes }, { getState, dispatch, rejectWithValue }) => {
+  // Snapshot the relevant fields before the update so we can describe what changed.
+  const prev = getState().tickets.tickets.find((t) => t.id === id);
+  const before = prev
+    ? { status: prev.status, priority: prev.priority, assignedTo: prev.assignedTo }
+    : undefined;
   try {
     const userId = requireUserId(getState());
     const body: UpdateTicketBody = {};
@@ -128,9 +172,37 @@ export const updateTicketAsync = createAsyncThunk<
     if (changes.payload !== undefined) body.payload = changes.payload;
 
     const server = await api.updateTicket(userId, id, body);
-    return adaptServerTicket(server);
+    const next = adaptServerTicket(server);
+    const { title, message } = buildUpdateMessage(before, next);
+    dispatch(notify({ kind: "success", title, message, link: `/ticket-detail/${next.id}` }));
+    return next;
   } catch (e) {
-    return rejectWithValue(e instanceof ApiError ? e.message : "Network error");
+    const msg = e instanceof ApiError ? e.message : "Network error";
+    dispatch(notify({ kind: "error", title: "No se pudo actualizar el ticket", message: msg }));
+    return rejectWithValue(msg);
+  }
+});
+
+export const rateTicketAsync = createAsyncThunk<
+  Ticket,
+  { id: string; value: number; comment?: string },
+  { state: RootState; rejectValue: string }
+>("tickets/rate", async ({ id, value, comment }, { getState, dispatch, rejectWithValue }) => {
+  try {
+    const userId = requireUserId(getState());
+    const server = await api.rateTicket(userId, id, { value, comment: comment?.trim() || null });
+    const next = adaptServerTicket(server);
+    dispatch(notify({
+      kind: "success",
+      title: "¡Gracias por tu calificación!",
+      message: `Ticket ${next.id}`,
+      link: `/ticket-detail/${next.id}`,
+    }));
+    return next;
+  } catch (e) {
+    const msg = e instanceof ApiError ? e.message : "Network error";
+    dispatch(notify({ kind: "error", title: "No se pudo registrar la calificación", message: msg }));
+    return rejectWithValue(msg);
   }
 });
 
@@ -138,13 +210,16 @@ export const deleteTicketAsync = createAsyncThunk<
   string,
   string,
   { state: RootState; rejectValue: string }
->("tickets/delete", async (id, { getState, rejectWithValue }) => {
+>("tickets/delete", async (id, { getState, dispatch, rejectWithValue }) => {
   try {
     const userId = requireUserId(getState());
     await api.deleteTicket(userId, id);
+    dispatch(notify({ kind: "success", title: "Ticket eliminado", message: `Ticket ${id}` }));
     return id;
   } catch (e) {
-    return rejectWithValue(e instanceof ApiError ? e.message : "Network error");
+    const msg = e instanceof ApiError ? e.message : "Network error";
+    dispatch(notify({ kind: "error", title: "No se pudo eliminar el ticket", message: msg }));
+    return rejectWithValue(msg);
   }
 });
 
@@ -226,6 +301,15 @@ const ticketsSlice = createSlice({
       })
       .addCase(updateTicketAsync.rejected, (state, action) => {
         state.mutationError = action.payload ?? "Error al actualizar";
+      })
+      // rate
+      .addCase(rateTicketAsync.fulfilled, (state, action) => {
+        const idx = state.tickets.findIndex((t) => t.id === action.payload.id);
+        if (idx >= 0) state.tickets[idx] = action.payload;
+        else state.tickets.unshift(action.payload);
+      })
+      .addCase(rateTicketAsync.rejected, (state, action) => {
+        state.mutationError = action.payload ?? "Error al calificar";
       })
       // delete
       .addCase(deleteTicketAsync.fulfilled, (state, action) => {

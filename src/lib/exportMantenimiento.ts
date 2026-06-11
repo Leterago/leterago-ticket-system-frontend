@@ -2,12 +2,16 @@ import {
   AlignmentType,
   BorderStyle,
   Document,
+  Footer,
+  Header,
   HeightRule,
+  ImageRun,
   Packer,
   Paragraph,
   ShadingType,
   Table,
   TableCell,
+  TableLayoutType,
   TableRow,
   TextRun,
   VerticalAlign,
@@ -15,47 +19,74 @@ import {
 } from "docx";
 import type { SolicitudMantenimientoPayload } from "../forms/SolicitudMantenimientoForm";
 import type { Ticket } from "../types/types";
+import logoUrl from "../assets/for077-logo.png";
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Reproduces FOR-077 "Orden de Trabajo de Mantenimiento" V-4 exactly. ────────
+// Only the fields captured by the app are filled in; the rest match the blank form.
 
-const BLUE      = "0047AC";
-const DARK_BLUE = "003080";
-const WHITE     = "FFFFFF";
-const DARK      = "1F2937";
-const GRAY      = "6B7280";
-const LIGHT     = "F3F4F6";
-const BLUE_SOFT = "EFF6FF";
-const BORDER    = "D1D5DB";
+const FONT  = "Verdana";
+const BLACK = "000000";
+const WHITE = "FFFFFF";
+const DARK  = "1F2937";
 
-// A4 portrait, 1-inch margins: 11906 - 2*1440 = 9026 twips
-const W = 9026;
+// A4 portrait with the original form's margins (twips).
+const PAGE   = { width: 11906, height: 16838 };
+const MARGIN = { top: 1411, right: 1699, bottom: 1134, left: 1699, header: 706, footer: 706 };
+const CW     = PAGE.width - MARGIN.left - MARGIN.right; // 8508 — content width
 
-const STATUS: Record<string, string> = {
-  pending:     "Pendiente",
-  in_progress: "En progreso",
-  completed:   "Resuelto",
-  confirmed:   "Confirmado",
-  canceled:    "Cancelado",
+// Main info table columns (LEFT label/value · MID prioridad · RIGHT área), original proportions.
+const LEFT  = Math.round(CW * 3790 / 11073);
+const MID   = Math.round(CW * 1914 / 11073);
+const RIGHT = CW - LEFT - MID;
+
+// "Realizado por" grid columns (original proportions).
+const RP = [
+  Math.round(CW * 2518 / 11073), // Fecha
+  Math.round(CW * 5528 / 11073), // Nombre
+  Math.round(CW * 1560 / 11073), // Hora inicio
+  0,
+];
+RP[3] = CW - RP[0] - RP[1] - RP[2]; // Hora término
+
+// Header columns: logo · título · bloque documento.
+// The logo is an INLINE image, so the cell clips it if too narrow — keep H_LOGO
+// comfortably wider than the image (150px ≈ 112.5pt ≈ 1607 twips) plus overhead.
+const H_LOGO = 2700;
+const H_INFO = 2050;
+const H_TITLE = CW - H_LOGO - H_INFO;
+const LOGO_W = 150;
+const LOGO_H = 58;
+
+const PRIORITY_NIVEL: Record<string, string> = {
+  urgent: "Urgente", high: "Importante", medium: "Normal", low: "Normal",
 };
-const PRIORITY: Record<string, string> = {
-  urgent: "Urgente",
-  high:   "Alta",
-  medium: "Media",
-  low:    "Baja",
-};
 
-// ─── Micro helpers ────────────────────────────────────────────────────────────
+const MESES = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+];
 
-function fmtDate(iso: string): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("es-EC", {
-    day: "2-digit", month: "2-digit", year: "numeric",
-  });
+// ─── Formatting helpers ─────────────────────────────────────────────────────────
+
+function fmtFecha(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  return `${String(d.getDate()).padStart(2, "0")}-${MESES[d.getMonth()]}-${d.getFullYear()}`;
 }
 
-function borders(color = BORDER) {
-  const s = { style: BorderStyle.SINGLE as typeof BorderStyle.SINGLE, size: 1, color };
-  return { top: s, bottom: s, left: s, right: s };
+function fmtHora(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+}
+
+/** Form date inputs arrive as "YYYY-MM-DD"; render as DD/MM/YYYY. */
+function fmtRegFecha(v?: string): string {
+  if (!v) return "";
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : v;
 }
 
 function run(
@@ -67,64 +98,153 @@ function run(
     bold:    opts.bold,
     italics: opts.italic,
     color:   opts.color ?? DARK,
-    size:   opts.size  ?? 18, // half-points; 18 = 9 pt
-    font:   "Calibri",
+    size:    opts.size  ?? 18, // half-points (18 = 9 pt)
+    font:    FONT,
   });
 }
 
 function p(
   runs: TextRun[],
   align?: (typeof AlignmentType)[keyof typeof AlignmentType],
-  before = 50,
-  after  = 50,
+  spacing: { before?: number; after?: number } = { before: 30, after: 30 },
 ): Paragraph {
-  return new Paragraph({
-    alignment: align,
-    spacing: { before, after },
-    children: runs,
-  });
+  return new Paragraph({ alignment: align, spacing, children: runs });
 }
 
-// ─── Cell factories ───────────────────────────────────────────────────────────
-
-function labelCell(text: string, w: number): TableCell {
-  return new TableCell({
-    width:          { size: w, type: WidthType.DXA },
-    borders:        borders(),
-    shading:        { type: ShadingType.SOLID, color: LIGHT, fill: LIGHT },
-    verticalAlign:  VerticalAlign.CENTER,
-    children:       [p([run(text, { bold: true, color: GRAY, size: 16 })])],
-  });
+const SOLID = (color: string) => ({
+  style: BorderStyle.SINGLE as typeof BorderStyle.SINGLE,
+  size: 4,
+  color,
+});
+function box(color = BLACK) {
+  const s = SOLID(color);
+  return { top: s, bottom: s, left: s, right: s };
 }
 
-function valueCell(text: string, w: number, span?: number): TableCell {
+// Hidden (no-line) border, used to suppress the internal vertical dividers in the
+// top info table — the original form shows only horizontal row lines + the outer box.
+const NB = { style: BorderStyle.NONE as typeof BorderStyle.NONE, size: 0, color: "auto" };
+function bdr(t: boolean, b: boolean, l: boolean, r: boolean) {
+  const s = SOLID(BLACK);
+  return { top: t ? s : NB, bottom: b ? s : NB, left: l ? s : NB, right: r ? s : NB };
+}
+
+// ─── Cell factories ─────────────────────────────────────────────────────────────
+
+type Borders = ReturnType<typeof bdr>; // each side may be a line or hidden (NB)
+
+function fieldCell(
+  label: string,
+  value: string,
+  width: number,
+  opts: { span?: number; rowSpan?: number; borders?: Borders } = {},
+): TableCell {
   return new TableCell({
-    width:       { size: w, type: WidthType.DXA },
-    columnSpan:  span,
-    borders:     borders(),
+    width:         { size: width, type: WidthType.DXA },
+    columnSpan:    opts.span,
+    rowSpan:       opts.rowSpan,
+    borders:       opts.borders ?? box(),
     verticalAlign: VerticalAlign.CENTER,
-    children:    [p([run(text)])],
+    margins:       { top: 40, bottom: 40, left: 80, right: 80 },
+    children: [p([
+      run(`${label} `, { bold: true }),
+      run(value),
+    ])],
   });
 }
 
-function blueCell(text: string, w: number, span?: number): TableCell {
+function emptyCell(width: number, span?: number, borders?: Borders): TableCell {
   return new TableCell({
-    width:        { size: w, type: WidthType.DXA },
-    columnSpan:   span,
-    borders:      borders(BLUE),
-    shading:      { type: ShadingType.SOLID, color: BLUE, fill: BLUE },
-    verticalAlign: VerticalAlign.CENTER,
-    children:     [p([run(text, { bold: true, color: WHITE })], AlignmentType.CENTER)],
+    width:      { size: width, type: WidthType.DXA },
+    columnSpan: span,
+    borders:    borders ?? box(),
+    children:   [p([run("")])],
   });
 }
 
-function sectionCell(text: string, cols: number): TableCell {
-  return new TableCell({
-    columnSpan:   cols,
-    borders:      borders(),
-    shading:      { type: ShadingType.SOLID, color: BLUE_SOFT, fill: BLUE_SOFT },
-    verticalAlign: VerticalAlign.CENTER,
-    children:     [p([run(text, { bold: true, color: BLUE })], AlignmentType.CENTER)],
+/** Full-width black section bar (white, bold, centered). */
+function sectionBar(text: string): Table {
+  return new Table({
+    width: { size: CW, type: WidthType.DXA },
+    layout: TableLayoutType.FIXED,
+    columnWidths: [CW],
+    rows: [new TableRow({
+      children: [new TableCell({
+        width:         { size: CW, type: WidthType.DXA },
+        borders:       box(),
+        shading:       { type: ShadingType.SOLID, color: BLACK, fill: BLACK },
+        verticalAlign: VerticalAlign.CENTER,
+        children:      [p([run(text, { bold: true, color: WHITE, size: 22 })], AlignmentType.CENTER, { before: 40, after: 40 })],
+      })],
+    })],
+  });
+}
+
+function gap(): Paragraph {
+  return new Paragraph({ spacing: { before: 120, after: 0 }, children: [] });
+}
+
+// ─── Header / footer ─────────────────────────────────────────────────────────────
+
+function buildHeader(logoData: ArrayBuffer | null): Header {
+  const logoChildren = logoData
+    ? [new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [new ImageRun({ type: "png", data: logoData, transformation: { width: LOGO_W, height: LOGO_H } })],
+      })]
+    : [p([run("LETERAGO", { bold: true, color: "0047AC", size: 28 })], AlignmentType.CENTER)];
+
+  // Right-side document-info block (nested table, line-separated rows).
+  const infoRow = (children: Paragraph[]) =>
+    new TableRow({ children: [new TableCell({
+      width: { size: H_INFO, type: WidthType.DXA },
+      borders: box(),
+      margins: { top: 10, bottom: 10, left: 60, right: 60 },
+      children,
+    })] });
+
+  const infoTable = new Table({
+    width: { size: H_INFO, type: WidthType.DXA },
+    layout: TableLayoutType.FIXED,
+    columnWidths: [H_INFO],
+    rows: [
+      infoRow([p([run("Documento No.:", { size: 14 })], undefined, { before: 0, after: 0 }),
+               p([run("FOR-077", { bold: true, size: 14 })], undefined, { before: 0, after: 0 })]),
+      infoRow([p([run("Versión: ", { size: 14 }), run("4", { bold: true, size: 14 })], undefined, { before: 0, after: 0 })]),
+      infoRow([p([run("Doc. Relacionado:", { size: 14 })], undefined, { before: 0, after: 0 }),
+               p([run("PNT-111", { bold: true, size: 14 })], undefined, { before: 0, after: 0 })]),
+      infoRow([p([run("Página ", { size: 14 }), run("1", { bold: true, size: 14 }),
+                  run(" de ", { size: 14 }), run("1", { bold: true, size: 14 })], undefined, { before: 0, after: 0 })]),
+    ],
+  });
+
+  const headerTable = new Table({
+    width: { size: CW, type: WidthType.DXA },
+    layout: TableLayoutType.FIXED,
+    columnWidths: [H_LOGO, H_TITLE, H_INFO],
+    rows: [new TableRow({
+      children: [
+        new TableCell({ width: { size: H_LOGO, type: WidthType.DXA }, borders: box(), verticalAlign: VerticalAlign.CENTER, margins: { top: 20, bottom: 20, left: 40, right: 40 }, children: logoChildren }),
+        new TableCell({ width: { size: H_TITLE, type: WidthType.DXA }, borders: box(), verticalAlign: VerticalAlign.CENTER,
+          children: [p([run("ORDEN DE TRABAJO DE MANTENIMIENTO", { bold: true, size: 22 })], AlignmentType.CENTER)] }),
+        new TableCell({ width: { size: H_INFO, type: WidthType.DXA }, borders: box(), verticalAlign: VerticalAlign.CENTER,
+          margins: { top: 0, bottom: 0, left: 0, right: 0 }, children: [infoTable] }),
+      ],
+    })],
+  });
+
+  return new Header({ children: [headerTable] });
+}
+
+function buildFooter(): Footer {
+  return new Footer({
+    children: [new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [run(
+        "DOCUMENTO CONFIDENCIAL PARA USO EXCLUSIVO DE LETERAGO SRL Y SUS AFILIADOS, REVISADO Y APROBADO MEDIANTE FIRMA ELECTRÓNICA.",
+        { bold: true, size: 14, color: BLACK },
+      )],
+    })],
   });
 }
 
@@ -134,206 +254,192 @@ export async function exportMantenimientoDocx(
   ticket: Ticket,
   payload: SolicitudMantenimientoPayload,
 ): Promise<void> {
-  const EMPTY_ROW = { fecha: "", realizadoPor: "", horaInicio: "", horaTermino: "" };
-  const registros = payload.registros?.length
-    ? payload.registros
-    : [{ ...EMPTY_ROW }, { ...EMPTY_ROW }];
+  let logoData: ArrayBuffer | null = null;
+  try {
+    logoData = await fetch(logoUrl).then((r) => r.arrayBuffer());
+  } catch {
+    logoData = null;
+  }
+
+  const nivel = PRIORITY_NIVEL[ticket.priority] ?? "Normal";
+  const ck = (opt: string) => `${nivel === opt ? "☒" : "☐"} ${opt}`;
 
   const ubicacion = payload.ubicacion === "otro"
-    ? payload.otraUbicacion || "Otro"
-    : payload.ubicacion;
+    ? (payload.otraUbicacion || "")
+    : (payload.ubicacion || "");
 
-  // Column sizes for 4-column tables
-  const LW = Math.floor(W * 0.20); // label column
-  const VW = Math.floor(W / 2) - LW;
+  const EMPTY_ROW = { fecha: "", realizadoPor: "", horaInicio: "", horaTermino: "" };
+  const base = payload.registros?.length ? payload.registros : [];
+  const registros = base.length >= 3 ? base : [...base, ...Array(3 - base.length).fill(EMPTY_ROW)];
 
-  // Execution table column widths
-  const EC = [
-    Math.floor(W * 0.17),  // Fecha
-    Math.floor(W * 0.38),  // Realizado por
-    Math.floor(W * 0.225), // Hora inicio
-    Math.floor(W * 0.225), // Hora término
-  ];
-
-  // ── Document sections ──────────────────────────────────────────────────────
+  // ── "NIVEL DE PRIORIDAD" merged cell content ──
+  const nivelCell = new TableCell({
+    width:         { size: MID, type: WidthType.DXA },
+    rowSpan:       3,
+    borders:       bdr(false, true, false, false), // only bottom (table edge); no vertical dividers
+    verticalAlign: VerticalAlign.CENTER,
+    margins:       { top: 40, bottom: 40, left: 60, right: 60 },
+    children: [
+      p([run("NIVEL DE", { bold: true, size: 16 })], AlignmentType.CENTER, { before: 0, after: 0 }),
+      p([run("PRIORIDAD", { bold: true, size: 16 })], AlignmentType.CENTER, { before: 0, after: 60 }),
+      p([run(ck("Urgente"),    { size: 18 })], AlignmentType.LEFT, { before: 10, after: 10 }),
+      p([run(ck("Importante"), { size: 18 })], AlignmentType.LEFT, { before: 10, after: 10 }),
+      p([run(ck("Normal"),     { size: 18 })], AlignmentType.LEFT, { before: 10, after: 10 }),
+    ],
+  });
 
   const doc = new Document({
     sections: [{
       properties: {
-        page: { margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 } },
+        page: { size: PAGE, margin: MARGIN },
       },
+      headers: { default: buildHeader(logoData) },
+      footers: { default: buildFooter() },
       children: [
 
-        // ── Header ──────────────────────────────────────────────────────────
+        // ── No. de Orden (right-aligned box) ──
         new Table({
-          width: { size: W, type: WidthType.DXA },
+          width: { size: Math.round(CW * 0.42), type: WidthType.DXA },
+          alignment: AlignmentType.RIGHT,
+          layout: TableLayoutType.FIXED,
+          columnWidths: [Math.round(CW * 0.42)],
+          rows: [new TableRow({
+            children: [new TableCell({
+              borders:       box(),
+              verticalAlign: VerticalAlign.CENTER,
+              margins:       { top: 40, bottom: 40, left: 100, right: 80 },
+              children: [p([run("No. de Orden: ", { bold: true, size: 20 }), run(payload.noOrden || "", { size: 20 })])],
+            })],
+          })],
+        }),
+
+        gap(),
+
+        // ── Main info table ──
+        new Table({
+          width: { size: CW, type: WidthType.DXA },
+          layout: TableLayoutType.FIXED,
+          columnWidths: [LEFT, MID, RIGHT],
+          // Internal vertical dividers are suppressed (bdr): only the outer box and
+          // horizontal row lines are visible, matching the original form.
           rows: [
-            new TableRow({
-              height: { value: 680, rule: HeightRule.EXACT },
-              children: [
-                // Logo area
-                new TableCell({
-                  width:        { size: Math.floor(W * 0.22), type: WidthType.DXA },
-                  borders:      borders(BLUE),
-                  shading:      { type: ShadingType.SOLID, color: BLUE, fill: BLUE },
-                  verticalAlign: VerticalAlign.CENTER,
-                  children: [
-                    p([run("LETERAGO", { bold: true, color: WHITE, size: 28 })], AlignmentType.CENTER),
-                  ],
-                }),
-                // Form title
-                new TableCell({
-                  width:        { size: Math.floor(W * 0.55), type: WidthType.DXA },
-                  borders:      borders(BLUE),
-                  shading:      { type: ShadingType.SOLID, color: BLUE, fill: BLUE },
-                  verticalAlign: VerticalAlign.CENTER,
-                  children: [
-                    p([run("SOLICITUD DE MANTENIMIENTO", { bold: true, color: WHITE, size: 22 })], AlignmentType.CENTER),
-                  ],
-                }),
-                // Form code
-                new TableCell({
-                  width:        { size: W - Math.floor(W * 0.22) - Math.floor(W * 0.55), type: WidthType.DXA },
-                  borders:      borders(DARK_BLUE),
-                  shading:      { type: ShadingType.SOLID, color: DARK_BLUE, fill: DARK_BLUE },
-                  verticalAlign: VerticalAlign.CENTER,
-                  children: [
-                    p([run("FOR-077", { bold: true, color: WHITE, size: 20 })], AlignmentType.CENTER, 30, 0),
-                    p([run("Rev. 01",  { color: "AABBDD", size: 16 })],         AlignmentType.CENTER, 0, 30),
-                  ],
-                }),
-              ],
-            }),
+            new TableRow({ children: [
+              fieldCell("Fecha:", fmtFecha(ticket.createdAt), LEFT, { borders: bdr(true, true, true, false) }),
+              // Open top-right corner (no top, no right border) — matches the original form.
+              emptyCell(MID + RIGHT, 2, bdr(false, true, false, false)),
+            ] }),
+            new TableRow({ children: [
+              fieldCell("Hora:", fmtHora(ticket.createdAt), LEFT, { borders: bdr(false, true, true, false) }),
+              nivelCell,
+              fieldCell("Área o Equipo:", payload.area || "", RIGHT, { borders: bdr(false, true, false, true) }),
+            ] }),
+            new TableRow({ children: [
+              fieldCell("Solicitado por:", ticket.createdBy ?? "", LEFT, { borders: bdr(false, true, true, false) }),
+              fieldCell("Código:", payload.codigo || "", RIGHT, { borders: bdr(false, true, false, true) }),
+            ] }),
+            new TableRow({ children: [
+              fieldCell("Departamento:", "", LEFT, { borders: bdr(false, true, true, false) }),
+              fieldCell("Ubicación:", ubicacion, RIGHT, { borders: bdr(false, true, false, true) }),
+            ] }),
           ],
         }),
 
         gap(),
 
-        // ── Ticket info ──────────────────────────────────────────────────────
+        // ── Descripción ──
+        sectionBar("DESCRIPCION TRABAJO O SOLICITUD"),
         new Table({
-          width: { size: W, type: WidthType.DXA },
-          rows: [
-            row4(labelCell("N° Ticket",      LW), valueCell(ticket.id,                                         VW, undefined), labelCell("Fecha",     LW), valueCell(fmtDate(ticket.createdAt),                   VW, undefined)),
-            row4(labelCell("Solicitado por", LW), valueCell(ticket.createdBy ?? "—",                            VW, undefined), labelCell("Estado",    LW), valueCell(STATUS[ticket.status]   ?? ticket.status,   VW, undefined)),
-            row4(labelCell("Asignado a",    LW), valueCell(ticket.assignedTo  ?? "Sin asignar",                VW, undefined), labelCell("Prioridad", LW), valueCell(PRIORITY[ticket.priority] ?? ticket.priority, VW, undefined)),
-          ],
+          width: { size: CW, type: WidthType.DXA },
+          layout: TableLayoutType.FIXED,
+          columnWidths: [CW],
+          rows: [new TableRow({
+            height: { value: 1400, rule: HeightRule.ATLEAST },
+            children: [new TableCell({
+              width: { size: CW, type: WidthType.DXA },
+              borders: box(),
+              margins: { top: 60, bottom: 60, left: 80, right: 80 },
+              children: [p([run(ticket.description || "")], undefined, { before: 0, after: 0 })],
+            })],
+          })],
         }),
 
         gap(),
 
-        // ── Equipment details ────────────────────────────────────────────────
+        // ── Realizado por ──
+        sectionBar("REALIZADO POR"),
         new Table({
-          width: { size: W, type: WidthType.DXA },
+          width: { size: CW, type: WidthType.DXA },
+          layout: TableLayoutType.FIXED,
+          columnWidths: RP,
           rows: [
-            new TableRow({ children: [labelCell("Área o Equipo", LW), valueCell(payload.area,        W - LW, 3)] }),
-            new TableRow({ children: [labelCell("Ubicación",     LW), valueCell(ubicacion,            VW),        labelCell("Código", LW), valueCell(payload.codigo || "—", VW)] }),
-            new TableRow({
-              children: [
-                labelCell("Descripción", LW),
-                new TableCell({
-                  columnSpan: 3,
-                  width:      { size: W - LW, type: WidthType.DXA },
-                  borders:    borders(),
-                  children:   [
-                    new Paragraph({
-                      spacing: { before: 80, after: 80 },
-                      children: [run(ticket.description || "Sin descripción.")],
-                    }),
-                  ],
-                }),
-              ],
-            }),
-          ],
-        }),
-
-        gap(),
-
-        // ── Execution records ────────────────────────────────────────────────
-        new Table({
-          width:        { size: W, type: WidthType.DXA },
-          columnWidths: EC,
-          rows: [
-            // Section title
-            new TableRow({ children: [sectionCell("REGISTRO DE EJECUCIÓN", 4)] }),
-            // Column headers
-            new TableRow({ children: EC.map((w, i) => blueCell(["Fecha", "Realizado por", "Hora inicio", "Hora término"][i], w)) }),
-            // Data rows
-            ...registros.map((r) =>
-              new TableRow({
-                height: { value: 440, rule: HeightRule.ATLEAST },
-                children: [
-                  valueCell(r.fecha,        EC[0]),
-                  valueCell(r.realizadoPor, EC[1]),
-                  valueCell(r.horaInicio,   EC[2]),
-                  valueCell(r.horaTermino,  EC[3]),
-                ],
+            new TableRow({ children: ["Fecha", "Nombre", "Hora Inicio", "Hora Termino"].map((h, i) =>
+              new TableCell({
+                width: { size: RP[i], type: WidthType.DXA },
+                borders: box(),
+                verticalAlign: VerticalAlign.CENTER,
+                children: [p([run(h, { bold: true })], AlignmentType.CENTER, { before: 20, after: 20 })],
               })
-            ),
+            ) }),
+            ...registros.map((r) => new TableRow({
+              height: { value: 360, rule: HeightRule.ATLEAST },
+              children: [
+                new TableCell({ width: { size: RP[0], type: WidthType.DXA }, borders: box(), verticalAlign: VerticalAlign.CENTER, children: [p([run(fmtRegFecha(r.fecha))], AlignmentType.CENTER)] }),
+                new TableCell({ width: { size: RP[1], type: WidthType.DXA }, borders: box(), verticalAlign: VerticalAlign.CENTER, margins: { top: 20, bottom: 20, left: 80, right: 80 }, children: [p([run(r.realizadoPor || "")])] }),
+                new TableCell({ width: { size: RP[2], type: WidthType.DXA }, borders: box(), verticalAlign: VerticalAlign.CENTER, children: [p([run(r.horaInicio || "")], AlignmentType.CENTER)] }),
+                new TableCell({ width: { size: RP[3], type: WidthType.DXA }, borders: box(), verticalAlign: VerticalAlign.CENTER, children: [p([run(r.horaTermino || "")], AlignmentType.CENTER)] }),
+              ],
+            })),
           ],
         }),
 
         gap(),
 
-        // ── Observations ─────────────────────────────────────────────────────
+        // ── Observaciones ──
+        sectionBar("OBSERVACIONES"),
         new Table({
-          width: { size: W, type: WidthType.DXA },
-          rows: [
-            new TableRow({
+          width: { size: CW, type: WidthType.DXA },
+          layout: TableLayoutType.FIXED,
+          columnWidths: [CW],
+          rows: [new TableRow({
+            height: { value: 1500, rule: HeightRule.ATLEAST },
+            children: [new TableCell({
+              width: { size: CW, type: WidthType.DXA },
+              borders: box(),
+              margins: { top: 60, bottom: 60, left: 80, right: 80 },
               children: [
-                new TableCell({
-                  borders: borders(),
-                  shading: { type: ShadingType.SOLID, color: LIGHT, fill: LIGHT },
-                  children: [p([run("OBSERVACIONES", { bold: true, color: GRAY, size: 16 })])],
-                }),
+                p([run("(Ampliar sobre el trabajo realizado y su estatus)", { italic: true, color: "808080" })], undefined, { before: 0, after: 60 }),
+                p([run(payload.observaciones || "")], undefined, { before: 0, after: 0 }),
               ],
-            }),
-            new TableRow({
-              height: { value: 1200, rule: HeightRule.ATLEAST },
-              children: [
-                new TableCell({
-                  borders:  borders(),
-                  children: [
-                    new Paragraph({
-                      spacing: { before: 80, after: 80 },
-                      children: [run(payload.observaciones || "")],
-                    }),
-                  ],
-                }),
-              ],
-            }),
-          ],
+            })],
+          })],
         }),
 
         gap(),
 
-        // ── Signatures ────────────────────────────────────────────────────────
+        // ── Recibe conforme / Fecha ──
         new Table({
-          width: { size: W, type: WidthType.DXA },
-          rows: [
-            new TableRow({
-              children: [
-                new TableCell({
-                  width:   { size: Math.floor(W / 2), type: WidthType.DXA },
-                  borders: borders(),
-                  shading: { type: ShadingType.SOLID, color: LIGHT, fill: LIGHT },
-                  children: [p([run("FIRMA SOLICITANTE", { bold: true, color: GRAY, size: 16 })], AlignmentType.CENTER)],
-                }),
-                new TableCell({
-                  width:   { size: W - Math.floor(W / 2), type: WidthType.DXA },
-                  borders: borders(),
-                  shading: { type: ShadingType.SOLID, color: LIGHT, fill: LIGHT },
-                  children: [p([run("FIRMA EJECUTOR", { bold: true, color: GRAY, size: 16 })], AlignmentType.CENTER)],
-                }),
-              ],
-            }),
-            new TableRow({
-              height: { value: 1440, rule: HeightRule.ATLEAST },
-              children: [
-                sigCell(`Nombre: ${ticket.createdBy  ?? ""}`, Math.floor(W / 2)),
-                sigCell(`Nombre: ${ticket.assignedTo ?? ""}`, W - Math.floor(W / 2)),
-              ],
-            }),
-          ],
+          width: { size: CW, type: WidthType.DXA },
+          layout: TableLayoutType.FIXED,
+          columnWidths: [Math.round(CW * 0.66), CW - Math.round(CW * 0.66)],
+          rows: [new TableRow({
+            height: { value: 520, rule: HeightRule.ATLEAST },
+            children: [
+              new TableCell({
+                width: { size: Math.round(CW * 0.66), type: WidthType.DXA },
+                borders: box(),
+                verticalAlign: VerticalAlign.CENTER,
+                margins: { top: 40, bottom: 40, left: 80, right: 80 },
+                children: [p([run("Recibe conforme: ", { bold: true }), run("(Firma de quien recibe)", { italic: true, color: "808080" })])],
+              }),
+              new TableCell({
+                width: { size: CW - Math.round(CW * 0.66), type: WidthType.DXA },
+                borders: box(),
+                verticalAlign: VerticalAlign.CENTER,
+                margins: { top: 40, bottom: 40, left: 80, right: 80 },
+                children: [p([run("Fecha: ", { bold: true })])],
+              }),
+            ],
+          })],
         }),
 
       ],
@@ -344,29 +450,9 @@ export async function exportMantenimientoDocx(
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement("a");
   a.href     = url;
-  a.download = `${ticket.id}_mantenimiento.docx`;
+  a.download = `${ticket.id}_FOR-077.docx`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-}
-
-// ─── Private layout helpers ───────────────────────────────────────────────────
-
-function gap(): Paragraph {
-  return new Paragraph({ spacing: { before: 120, after: 0 }, children: [] });
-}
-
-function row4(...cells: [TableCell, TableCell, TableCell, TableCell]): TableRow {
-  return new TableRow({ children: cells });
-}
-
-function sigCell(nameText: string, w: number): TableCell {
-  return new TableCell({
-    width:   { size: w, type: WidthType.DXA },
-    borders: borders(),
-    children: [
-      new Paragraph({ spacing: { before: 1200, after: 60 }, children: [run(nameText, { size: 16, color: GRAY })] }),
-    ],
-  });
 }

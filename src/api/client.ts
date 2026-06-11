@@ -1,6 +1,7 @@
 import type {
   CategoryId,
   DepartmentId,
+  TicketEventType,
   TicketPriority,
   TicketStatus,
 } from "../types/types";
@@ -9,13 +10,14 @@ const API_URL: string =
   (import.meta.env.VITE_API_URL as string | undefined) ?? "/api";
 
 export class ApiError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-    public details?: unknown,
-  ) {
+  status: number;
+  details?: unknown;
+
+  constructor(status: number, message: string, details?: unknown) {
     super(message);
     this.name = "ApiError";
+    this.status = status;
+    this.details = details;
   }
 }
 
@@ -38,6 +40,13 @@ export type ServerUser = {
 // The login / registration response also carries the resolved permission codes.
 export type AuthUser = ServerUser & { permissions: string[] };
 
+export type ServerTicketRating = {
+  value: number;            // 1–5
+  comment: string | null;
+  at: string | null;        // ISO
+  by: string | null;        // rater User.id
+};
+
 export type ServerTicket = {
   id: string;
   title: string;
@@ -51,6 +60,7 @@ export type ServerTicket = {
   assignedToId: string | null;
   assignedTo: ServerUserRef | null;
   executionAt: string | null;
+  rating: ServerTicketRating | null;
   payload: unknown | null;
   payloadVersion: number | null;
   createdAt: string;
@@ -62,7 +72,7 @@ export type ServerTicketEvent = {
   ticketId: string;
   userId: string;
   user: { id: string; name: string };
-  type: string;
+  type: TicketEventType;
   from: string | null;
   to: string | null;
   createdAt: string;
@@ -248,6 +258,12 @@ export const api = {
 
   deleteTicket: (userId: string, id: string) =>
     request<void>(`/tickets/${id}`, userId, { method: "DELETE" }),
+
+  rateTicket: (userId: string, id: string, body: { value: number; comment?: string | null }) =>
+    request<ServerTicket>(`/tickets/${id}/rating`, userId, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   // Auth
   login: (email: string, password: string) =>
