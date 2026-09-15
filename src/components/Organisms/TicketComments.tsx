@@ -1,8 +1,12 @@
 import { Fragment, useEffect, useRef, useState, useCallback } from "react";
-import { Send, Loader2, MessageSquare, MoreHorizontal, Pencil, Trash2, Check, X } from "lucide-react";
+import { Send, Loader2, MessageSquare, MoreHorizontal, Pencil, Trash2, Check, X, ImagePlus, ZoomIn } from "lucide-react";
 import { api, type ServerComment } from "../../api/client";
 import { useCurrentUser } from "../../store/hooks";
 import { getInitials } from "../../lib/initials";
+import { compressImage, IMAGE_MAX_BYTES } from "../../lib/compressImage";
+import ImageLightbox from "./ImageLightbox";
+
+const MAX_COMMENT_IMAGES = 6; // espejo del tope del backend
 
 const AVATAR_COLORS = [
   "bg-[#0047AC]", "bg-emerald-500", "bg-violet-500",
@@ -51,6 +55,7 @@ function CommentBubble({
   currentUserId,
   onSaved,
   onDeleted,
+  onOpenImages,
 }: {
   comment: ServerComment;
   isOwn: boolean;
@@ -58,6 +63,7 @@ function CommentBubble({
   currentUserId: string;
   onSaved: (updated: ServerComment) => void;
   onDeleted: (id: string) => void;
+  onOpenImages: (images: string[], index: number) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -173,7 +179,7 @@ function CommentBubble({
       )}
 
       {/* Bubble */}
-      <div className="flex-1">
+      <div className="flex-1 flex flex-col gap-1">
         {editing ? (
           <div className={`rounded-2xl ${isOwn ? "rounded-br-sm" : "rounded-bl-sm"} overflow-hidden border-2 border-[#0047AC]`}>
             <textarea
@@ -206,14 +212,35 @@ function CommentBubble({
             </div>
           </div>
         ) : (
-          <div
-            className={`px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words
-              ${isOwn
-                ? "bg-[#0047AC] text-white rounded-2xl rounded-br-sm"
-                : "bg-gray-100 text-gray-800 rounded-2xl rounded-bl-sm"
-              }`}
-          >
-            {comment.body}
+          comment.body && (
+            <div
+              className={`px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words
+                ${isOwn
+                  ? "bg-[#0047AC] text-white rounded-2xl rounded-br-sm"
+                  : "bg-gray-100 text-gray-800 rounded-2xl rounded-bl-sm"
+                }`}
+            >
+              {comment.body}
+            </div>
+          )
+        )}
+
+        {/* Imágenes adjuntas — miniaturas que abren el visor */}
+        {(comment.images?.length ?? 0) > 0 && (
+          <div className={`flex flex-wrap gap-1 ${isOwn ? "justify-end" : "justify-start"}`}>
+            {comment.images.map((src, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => onOpenImages(comment.images, i)}
+                className="relative group/img rounded-lg overflow-hidden border border-black/10 bg-gray-50"
+              >
+                <img src={src} alt={`adjunto-${i + 1}`} className="h-28 w-28 object-cover cursor-zoom-in" />
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 group-hover/img:bg-black/20 transition-colors">
+                  <ZoomIn size={16} className="text-white opacity-0 group-hover/img:opacity-90 transition-opacity drop-shadow" />
+                </div>
+              </button>
+            ))}
           </div>
         )}
       </div>
@@ -227,8 +254,15 @@ export default function TicketComments({ ticketId }: { ticketId: string }) {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [text, setText] = useState("");
+  // Imágenes adjuntas al comentario en redacción (data-URLs ya comprimidas).
+  const [pendingImages, setPendingImages] = useState<string[]>([]);
+  const [attaching, setAttaching] = useState(false);
+  const [attachError, setAttachError] = useState<string | null>(null);
+  // Visor: imágenes + índice abiertos (null = cerrado).
+  const [viewer, setViewer] = useState<{ images: string[]; index: number } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     try {
@@ -252,14 +286,52 @@ export default function TicketComments({ ticketId }: { ticketId: string }) {
     ta.style.height = `${Math.min(ta.scrollHeight, 120)}px`;
   };
 
+  const attachFiles = async (files: FileList | File[] | null) => {
+    if (!files) return;
+    const arr = Array.from(files).filter((f) => f.type.startsWith("image/"));
+    if (arr.length === 0) return;
+    const room = MAX_COMMENT_IMAGES - pendingImages.length;
+    if (room <= 0) {
+      setAttachError(`Máximo ${MAX_COMMENT_IMAGES} imágenes por comentario.`);
+      return;
+    }
+    const take = arr.slice(0, room);
+    const oversized = take.find((f) => f.size > IMAGE_MAX_BYTES);
+    if (oversized) {
+      setAttachError(`"${oversized.name}" supera los 5 MB.`);
+      return;
+    }
+    setAttachError(null);
+    setAttaching(true);
+    try {
+      const compressed = await Promise.all(take.map((f) => compressImage(f)));
+      setPendingImages((prev) => [...prev, ...compressed]);
+    } catch {
+      setAttachError("No se pudo procesar la imagen.");
+    } finally {
+      setAttaching(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const imgs = Array.from(e.clipboardData.items)
+      .filter((it) => it.kind === "file" && it.type.startsWith("image/"))
+      .map((it) => it.getAsFile())
+      .filter((f): f is File => f !== null);
+    if (imgs.length > 0) { e.preventDefault(); attachFiles(imgs); }
+  };
+
   const send = async () => {
     const body = text.trim();
-    if (!body || sending) return;
+    if ((!body && pendingImages.length === 0) || sending || attaching) return;
     setSending(true);
     try {
-      const comment = await api.createComment(currentUser.id, ticketId, body);
+      const comment = await api.createComment(currentUser.id, ticketId, body, pendingImages);
       setComments((prev) => [...prev, comment]);
       setText("");
+      setPendingImages([]);
+      setAttachError(null);
       if (textareaRef.current) textareaRef.current.style.height = "auto";
     } finally {
       setSending(false);
@@ -347,6 +419,7 @@ export default function TicketComments({ ticketId }: { ticketId: string }) {
                         currentUserId={currentUser.id}
                         onSaved={handleCommentSaved}
                         onDeleted={handleCommentDeleted}
+                        onOpenImages={(images, index) => setViewer({ images, index })}
                       />
 
                       {isLastInGroup && (
@@ -371,22 +444,69 @@ export default function TicketComments({ ticketId }: { ticketId: string }) {
 
       {/* Input */}
       <div className="border-t border-gray-100 px-4 py-3">
+        {/* Previews de imágenes por adjuntar */}
+        {(pendingImages.length > 0 || attaching) && (
+          <div className="flex flex-wrap gap-2 mb-2 ml-10">
+            {pendingImages.map((src, i) => (
+              <div key={i} className="relative group w-16 h-16 rounded-lg overflow-hidden border border-gray-200">
+                <img src={src} alt={`adjunto-${i + 1}`} className="w-full h-full object-cover" />
+                <button
+                  type="button"
+                  onClick={() => setPendingImages((prev) => prev.filter((_, idx) => idx !== i))}
+                  className="absolute top-0.5 right-0.5 bg-black/50 hover:bg-black/70 text-white rounded-full p-0.5 transition-colors"
+                >
+                  <X size={11} />
+                </button>
+              </div>
+            ))}
+            {attaching && (
+              <div className="w-16 h-16 rounded-lg border border-dashed border-gray-200 flex items-center justify-center text-gray-300">
+                <Loader2 size={16} className="animate-spin" />
+              </div>
+            )}
+          </div>
+        )}
+
+        {attachError && (
+          <p className="text-[11px] text-red-500 mb-2 ml-10">{attachError}</p>
+        )}
+
         <div className="flex items-end gap-2.5">
           <Avatar name={currentUser.name} userId={currentUser.id} size="sm" />
           <div className="flex-1 flex items-end gap-2 bg-gray-50 border border-gray-300 rounded-2xl px-3.5 py-2 focus-within:border-[#0047AC] transition-colors">
+            {/* Adjuntar imagen */}
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={attaching || pendingImages.length >= MAX_COMMENT_IMAGES}
+              title="Adjuntar imagen"
+              className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center transition-colors
+                disabled:text-gray-300 enabled:text-gray-400 enabled:hover:text-[#0047AC] enabled:hover:bg-blue-50"
+            >
+              <ImagePlus size={16} />
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => attachFiles(e.target.files)}
+            />
             <textarea
               ref={textareaRef}
               rows={1}
               value={text}
               onChange={(e) => { setText(e.target.value); autoResize(); }}
               onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
               placeholder="Escribe un comentario…"
               className="flex-1 bg-transparent text-sm text-gray-800 placeholder-gray-400 outline-none resize-none leading-relaxed"
               style={{ height: "auto" }}
             />
             <button
               onClick={send}
-              disabled={!text.trim() || sending}
+              disabled={(!text.trim() && pendingImages.length === 0) || sending || attaching}
               className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center transition-colors
                 disabled:text-gray-300 enabled:text-[#0047AC] enabled:hover:bg-blue-50"
             >
@@ -394,8 +514,17 @@ export default function TicketComments({ ticketId }: { ticketId: string }) {
             </button>
           </div>
         </div>
-        <p className="text-[10px] text-gray-300 mt-1.5 ml-10">Enter para enviar · Shift+Enter para nueva línea</p>
+        <p className="text-[10px] text-gray-300 mt-1.5 ml-10">Enter para enviar · Shift+Enter para nueva línea · adjunta o pega imágenes (máx. {MAX_COMMENT_IMAGES})</p>
       </div>
+
+      {viewer && (
+        <ImageLightbox
+          images={viewer.images}
+          index={viewer.index}
+          onIndexChange={(i) => setViewer((v) => (v ? { ...v, index: i } : v))}
+          onClose={() => setViewer(null)}
+        />
+      )}
     </div>
   );
 }

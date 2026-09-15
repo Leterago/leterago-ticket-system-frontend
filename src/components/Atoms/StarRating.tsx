@@ -1,5 +1,6 @@
 import { Star } from "lucide-react";
 import { useState } from "react";
+import Tooltip from "@mui/material/Tooltip";
 
 export const RATING_LABELS = ["", "Muy malo", "Malo", "Regular", "Bueno", "Excelente"];
 
@@ -20,22 +21,24 @@ export default function StarRating({ value, onChange, size = 24, disabled = fals
   return (
     <div className="flex items-center gap-1">
       {[1, 2, 3, 4, 5].map((n) => (
-        <button
-          key={n}
-          type="button"
-          disabled={readOnly || disabled}
-          onClick={() => onChange?.(n)}
-          onMouseEnter={() => !readOnly && setHover(n)}
-          onMouseLeave={() => !readOnly && setHover(0)}
-          aria-label={`${n} — ${RATING_LABELS[n]}`}
-          title={RATING_LABELS[n]}
-          className={`${readOnly ? "cursor-default" : "cursor-pointer hover:scale-110"} transition-transform disabled:cursor-not-allowed`}
-        >
-          <Star
-            size={size}
-            className={n <= shown ? "fill-amber-400 text-amber-400" : "text-gray-300 dark:text-gray-600"}
-          />
-        </button>
+        <Tooltip key={n} title={RATING_LABELS[n]} arrow>
+          <span className="inline-flex">
+            <button
+              type="button"
+              disabled={readOnly || disabled}
+              onClick={() => onChange?.(n)}
+              onMouseEnter={() => !readOnly && setHover(n)}
+              onMouseLeave={() => !readOnly && setHover(0)}
+              aria-label={`${n} — ${RATING_LABELS[n]}`}
+              className={`${readOnly ? "cursor-default" : "cursor-pointer hover:scale-110"} transition-transform disabled:cursor-not-allowed`}
+            >
+              <Star
+                size={size}
+                className={n <= shown ? "fill-amber-400 text-amber-400" : "text-gray-300 dark:text-gray-600"}
+              />
+            </button>
+          </span>
+        </Tooltip>
       ))}
       {showLabel && shown > 0 && (
         <span className="ml-2 text-xs font-medium text-gray-500">{RATING_LABELS[shown]}</span>

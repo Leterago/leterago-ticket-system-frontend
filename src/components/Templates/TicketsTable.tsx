@@ -1,4 +1,4 @@
-import { Search, ChevronLeft, ChevronRight, ChevronDown, Check, CheckCircle2, Loader2 } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, ChevronDown, Check, Eye } from "lucide-react";
 import { getInitials } from "../../lib/initials";
 import { formatDate } from "../../lib/formatDate";
 import { useMemo, useState, useRef, useEffect } from "react";
@@ -6,12 +6,19 @@ import type { Ticket } from "../../types/types";
 import Badged from "../Atoms/Badged";
 import { useAppSelector, useCurrentUser, useAppDispatch } from "../../store/hooks";
 import { useNavigate } from "react-router-dom";
-import { CATEGORIES, DEPARTMENTS, getCategoriesForDepartments } from "../../config/catalog";
+import { CATEGORIES, DEPARTMENTS, DEPARTMENT_IDS_WITH_CATEGORIES, getCategoriesForDepartments } from "../../config/catalog";
 import type { DepartmentId } from "../../types/types";
-import { updateTicketAsync } from "../../store/ticketsSlice";
-import { canConfirm } from "../../store/permissions";
+import { updateTicketAsync, rateTicketAsync } from "../../store/ticketsSlice";
+import { canConfirm, canSeeAllTickets, viewableDepartmentIds } from "../../store/permissions";
+import StarRating from "../Atoms/StarRating";
+import Tooltip from "@mui/material/Tooltip";
 
-const ALL_DEPT_IDS = Object.keys(DEPARTMENTS) as DepartmentId[];
+const ALL_DEPT_IDS = DEPARTMENT_IDS_WITH_CATEGORIES;
+
+// Opciones del selector "Filas por página" (vista compacta). Elegir más filas
+// renderiza más y, al no haber alto fijo, agranda la tabla automáticamente.
+const PAGE_SIZE_OPTIONS = [8, 15, 25, 50, 100];
+const DEFAULT_PAGE_SIZE = 8;
 
 function TicketsTable({ viewMode = "compact" }: { viewMode?: "compact" | "extended" }) {
   const { tickets } = useAppSelector((s) => s.tickets);
@@ -19,18 +26,16 @@ function TicketsTable({ viewMode = "compact" }: { viewMode?: "compact" | "extend
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
   const [confirming, setConfirming] = useState<Set<string>>(new Set());
+  const [ratingIds, setRatingIds] = useState<Set<string>>(new Set());
 
-  const workingDeptIds: DepartmentId[] = currentUser.role === "master"
+  // Departamentos visibles (para el filtro y el scoping): todos si ve_all, si no los
+  // departamentos donde su rol concede view_department. Por permiso, sin nombres de rol.
+  const workingDeptIds: DepartmentId[] = canSeeAllTickets(currentUser)
     ? ALL_DEPT_IDS
-    : currentUser.departments
-        .filter((d) => d.role !== "requester")
-        .map((d) => d.departmentId as DepartmentId);
+    : viewableDepartmentIds(currentUser);
 
   const visible: Ticket[] = useMemo(() => {
-    if (currentUser.role === "master") return tickets;
-    if (currentUser.role === "requester") {
-      return tickets.filter((t) => t.createdById === currentUser.id);
-    }
+    if (canSeeAllTickets(currentUser)) return tickets;
     const accessibleCats = getCategoriesForDepartments(workingDeptIds);
     return tickets.filter(
       (t) =>
@@ -45,7 +50,14 @@ function TicketsTable({ viewMode = "compact" }: { viewMode?: "compact" | "extend
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [deptFilter, setDeptFilter] = useState("all");
   const [page, setPage] = useState(1);
-  const pageSize = 8;
+  // Filas por página elegidas por el usuario; se recuerda entre recargas.
+  const [pageSize, setPageSize] = useState<number>(() => {
+    const saved = Number(localStorage.getItem("mesa_tickets_page_size"));
+    return PAGE_SIZE_OPTIONS.includes(saved) ? saved : DEFAULT_PAGE_SIZE;
+  });
+  useEffect(() => {
+    localStorage.setItem("mesa_tickets_page_size", String(pageSize));
+  }, [pageSize]);
 
   const filtered = useMemo(() => {
     return visible.filter((r) => {
@@ -96,6 +108,20 @@ function TicketsTable({ viewMode = "compact" }: { viewMode?: "compact" | "extend
       await dispatch(updateTicketAsync({ id: ticket.id, changes: { status: "confirmed" } }));
     } finally {
       setConfirming((prev) => {
+        const next = new Set(prev);
+        next.delete(ticket.id);
+        return next;
+      });
+    }
+  };
+
+  const handleRate = async (ticket: Ticket, value: number) => {
+    if (ratingIds.has(ticket.id)) return;
+    setRatingIds((prev) => new Set([...prev, ticket.id]));
+    try {
+      await dispatch(rateTicketAsync({ id: ticket.id, value, comment: ticket.rating?.comment ?? undefined }));
+    } finally {
+      setRatingIds((prev) => {
         const next = new Set(prev);
         next.delete(ticket.id);
         return next;
@@ -175,14 +201,19 @@ function TicketsTable({ viewMode = "compact" }: { viewMode?: "compact" | "extend
               <button
                 onClick={(e) => handleConfirm(ticket, e)}
                 disabled={confirming.has(ticket.id)}
-                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 disabled:opacity-60 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+                title="Confirmar"
+                className="group inline-flex items-center justify-center h-7 disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 {confirming.has(ticket.id) ? (
-                  <Loader2 size={13} className="animate-spin" />
+                  <span className="text-xs font-semibold text-emerald-700">Confirmando...</span>
                 ) : (
-                  <CheckCircle2 size={13} />
+                  <>
+                    <span className="text-xs font-semibold text-emerald-700 group-hover:hidden">Confirmar</span>
+                    <span className="hidden group-hover:block">
+                      <Badged variant="confirmed" />
+                    </span>
+                  </>
                 )}
-                Confirmar
               </button>
             ) : null
           }
@@ -195,6 +226,16 @@ function TicketsTable({ viewMode = "compact" }: { viewMode?: "compact" | "extend
           tickets={activeTickets}
           emptyMessage="No hay solicitudes activas."
           onRowClick={(id) => navigate(`/ticket-detail/${id}`)}
+          actionColumn={(ticket) => (
+            <Tooltip title="Ver detalles" arrow>
+              <button
+                onClick={(e) => { e.stopPropagation(); navigate(`/ticket-detail/${ticket.id}`); }}
+                className="p-1.5 rounded-md text-gray-400 hover:text-[#0047AC] hover:bg-blue-50 transition-colors"
+              >
+                <Eye size={16} />
+              </button>
+            </Tooltip>
+          )}
           accentColor="border-l-4 border-l-gray-300"
         />
 
@@ -204,6 +245,19 @@ function TicketsTable({ viewMode = "compact" }: { viewMode?: "compact" | "extend
           tickets={confirmedTickets}
           emptyMessage="No hay tickets confirmados."
           onRowClick={(id) => navigate(`/ticket-detail/${id}`)}
+          actionColumn={(ticket) => {
+            const isCreator = ticket.createdById === currentUser.id;
+            return (
+              <div onClick={(e) => e.stopPropagation()}>
+                <StarRating
+                  value={ticket.rating?.value ?? 0}
+                  size={16}
+                  onChange={isCreator ? (v) => handleRate(ticket, v) : undefined}
+                  disabled={ratingIds.has(ticket.id)}
+                />
+              </div>
+            );
+          }}
           accentColor="border-l-4 border-l-blue-400"
         />
       </div>
@@ -215,7 +269,8 @@ function TicketsTable({ viewMode = "compact" }: { viewMode?: "compact" | "extend
     <div className="flex flex-col bg-white border border-gray-200 rounded-lg overflow-hidden">
       {/* Filter Bar */}
       <div className="flex flex-wrap items-center gap-3 p-4 border-b border-gray-100">
-        <div className="relative flex-1 min-w-48">
+        {/* Buscador reducido (deja espacio para los dropdowns a la derecha) */}
+        <div className="relative w-full sm:w-72">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-300" />
           <input
             value={search}
@@ -225,56 +280,67 @@ function TicketsTable({ viewMode = "compact" }: { viewMode?: "compact" | "extend
           />
         </div>
 
-        {showDeptFilter && (
+        {/* Dropdowns agrupados a la derecha; "Filas" queda al final (extremo derecho). */}
+        <div className="flex flex-wrap items-center gap-3 sm:ml-auto">
+          {showDeptFilter && (
+            <FilterSelect
+              value={deptFilter}
+              onChange={(v) => { setDeptFilter(v); setPage(1); }}
+              label="Área"
+              className="w-56"
+              options={[
+                { value: "all", label: "Todos los departamentos" },
+                ...workingDeptIds.map((dId) => ({ value: dId, label: DEPARTMENTS[dId].label })),
+              ]}
+            />
+          )}
+
           <FilterSelect
-            value={deptFilter}
-            onChange={(v) => { setDeptFilter(v); setPage(1); }}
-            label="Área"
-            className="w-56"
+            value={priorityFilter}
+            onChange={(v) => { setPriorityFilter(v); setPage(1); }}
+            label="Prioridad"
+            className="w-36"
             options={[
-              { value: "all", label: "Todos los departamentos" },
-              ...workingDeptIds.map((dId) => ({ value: dId, label: DEPARTMENTS[dId].label })),
+              { value: "all",    label: "Todas" },
+              { value: "urgent", label: "Urgente" },
+              { value: "high",   label: "Alta" },
+              { value: "medium", label: "Media" },
+              { value: "low",    label: "Baja" },
             ]}
           />
-        )}
 
-        <FilterSelect
-          value={priorityFilter}
-          onChange={(v) => { setPriorityFilter(v); setPage(1); }}
-          label="Prioridad"
-          className="w-36"
-          options={[
-            { value: "all",    label: "Todas" },
-            { value: "urgent", label: "Urgente" },
-            { value: "high",   label: "Alta" },
-            { value: "medium", label: "Media" },
-            { value: "low",    label: "Baja" },
-          ]}
-        />
+          <FilterSelect
+            value={statusFilter}
+            onChange={(v) => { setStatusFilter(v); setPage(1); }}
+            label="Estado"
+            className="w-44"
+            options={[
+              { value: "all",         label: "Todos" },
+              { value: "pending",     label: "Pendiente" },
+              { value: "in_progress", label: "En progreso" },
+              { value: "completed",   label: "Resuelto" },
+              { value: "confirmed",   label: "Confirmado" },
+              { value: "canceled",    label: "Cancelado" },
+            ]}
+          />
 
-        <FilterSelect
-          value={statusFilter}
-          onChange={(v) => { setStatusFilter(v); setPage(1); }}
-          label="Estado"
-          className="w-44"
-          options={[
-            { value: "all",         label: "Todos" },
-            { value: "pending",     label: "Pendiente" },
-            { value: "in_progress", label: "En progreso" },
-            { value: "completed",   label: "Resuelto" },
-            { value: "confirmed",   label: "Confirmado" },
-            { value: "canceled",    label: "Cancelado" },
-          ]}
-        />
+          {hasActiveFiltersCompact && (
+            <button
+              onClick={() => { setSearch(""); setStatusFilter("all"); setPriorityFilter("all"); setDeptFilter("all"); setPage(1); }}
+              className="text-xs text-[#0047AC] font-semibold hover:underline whitespace-nowrap"
+            >
+              Limpiar filtros
+            </button>
+          )}
 
-        {hasActiveFiltersCompact && (
-          <button
-            onClick={() => { setSearch(""); setStatusFilter("all"); setPriorityFilter("all"); setDeptFilter("all"); setPage(1); }}
-            className="text-xs text-[#0047AC] font-semibold hover:underline whitespace-nowrap"
-          >
-            Limpiar filtros
-          </button>
-        )}
+          <FilterSelect
+            value={String(pageSize)}
+            onChange={(v) => { setPageSize(Number(v)); setPage(1); }}
+            label="Filas"
+            className="w-32"
+            options={PAGE_SIZE_OPTIONS.map((n) => ({ value: String(n), label: String(n) }))}
+          />
+        </div>
       </div>
 
       {/* Table */}
@@ -425,7 +491,18 @@ function ExtendedSection({
         <span className="text-xs text-gray-400 font-medium">{tickets.length} ticket{tickets.length !== 1 ? "s" : ""}</span>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-sm">
+        <table className="w-full table-fixed border-collapse text-sm">
+          <colgroup>
+            <col className="w-[6%]" />
+            <col className="w-[19%]" />
+            <col className="w-[12%]" />
+            <col className="w-[14%]" />
+            <col className="w-[9%]" />
+            <col className="w-[12%]" />
+            <col className="w-[10%]" />
+            <col className="w-[9%]" />
+            {hasAction && <col className="w-[9%]" />}
+          </colgroup>
           <thead>
             <tr className="bg-gray-50 border-b border-gray-100">
               <Th>ID</Th>
@@ -461,33 +538,33 @@ function ExtendedSection({
                     <span className="text-[#0047AC] font-bold text-xs font-mono">{ticket.id}</span>
                   </Td>
                   <Td>
-                    <span className="text-gray-900 font-semibold text-sm line-clamp-1 max-w-52 block">{ticket.title}</span>
+                    <span className="text-gray-900 font-semibold text-sm line-clamp-1 block">{ticket.title}</span>
                     {ticket.description && (
-                      <p className="text-gray-400 text-xs line-clamp-1 max-w-52">{ticket.description}</p>
+                      <p className="text-gray-400 text-xs line-clamp-1">{ticket.description}</p>
                     )}
                   </Td>
                   <Td>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
                       <div className="w-8 h-8 rounded-full bg-blue-100 text-[#0047AC] text-xs font-bold flex items-center justify-center shrink-0">
                         {getInitials(ticket.createdBy)}
                       </div>
-                      <span className="text-gray-700 text-xs whitespace-nowrap">{ticket.createdBy}</span>
+                      <span className="text-gray-700 text-xs truncate">{ticket.createdBy}</span>
                     </div>
                   </Td>
                   <Td>
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-gray-700 text-xs font-semibold">{dept?.label ?? ticket.departmentId}</span>
-                      <span className="text-gray-400 text-xs">{cat?.label ?? ticket.categoryId}</span>
+                    <div className="flex flex-col gap-0.5 min-w-0">
+                      <span className="text-gray-700 text-xs font-semibold truncate">{dept?.label ?? ticket.departmentId}</span>
+                      <span className="text-gray-400 text-xs truncate">{cat?.label ?? ticket.categoryId}</span>
                     </div>
                   </Td>
                   <Td><div className="flex justify-center"><Badged variant={ticket.priority} /></div></Td>
                   <Td>
                     {ticket.assignedTo ? (
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
                         <div className="w-8 h-8 rounded-full bg-[#0047AC] text-white text-xs font-bold flex items-center justify-center shrink-0">
                           {getInitials(ticket.assignedTo)}
                         </div>
-                        <span className="text-gray-700 text-xs whitespace-nowrap">{ticket.assignedTo}</span>
+                        <span className="text-gray-700 text-xs truncate">{ticket.assignedTo}</span>
                       </div>
                     ) : (
                       <span className="text-gray-400 text-xs italic">Sin asignar</span>

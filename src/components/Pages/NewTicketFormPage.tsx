@@ -8,7 +8,7 @@ import { useAppDispatch, useAppSelector, useCurrentUser } from "../../store/hook
 import { createTicketAsync, clearCreateError } from "../../store/ticketsSlice";
 import type { TicketPriority, CategoryId } from "../../types/types";
 import { CATEGORIES, getDepartmentForCategory } from "../../config/catalog";
-import { canAssign } from "../../store/permissions";
+import { canAssign, canChangeStatusInDept, canSeeAllTickets, viewableDepartmentIds } from "../../store/permissions";
 import { getCategoryForm } from "../../forms/registry";
 
 export default function NewTicketFormPage() {
@@ -52,14 +52,13 @@ export default function NewTicketFormPage() {
     });
   }, [currentUser, departmentId, categoryId]);
 
-  // Users available for assignment: only admin/participant in this dept (not requesters)
+  // Sugerencias para asignar: solo quienes pueden CAMBIAR EL ESTADO de tickets en
+  // este departamento (master, admin del departamento, o miembro cuyo rol concede
+  // tickets.change_status). Espeja el backend y el selector del detalle.
   const assigneeUsers: AssigneeUser[] = useMemo(() => {
     if (!departmentId) return [];
     return allUsers
-      .filter((u) =>
-        u.role === "master" ||
-        u.departments.some((d) => d.departmentId === departmentId && d.role !== "requester")
-      )
+      .filter((u) => canChangeStatusInDept(u, departmentId))
       .map((u) => ({ id: u.id, name: u.name }));
   }, [allUsers, departmentId]);
 
@@ -128,7 +127,7 @@ export default function NewTicketFormPage() {
               onClick={() => navigate("/tickets")}
               className="w-full bg-[#0047AC] text-white py-2.5 rounded-md font-semibold text-sm hover:bg-blue-700 transition-colors"
             >
-              {currentUser.role === "master" || currentUser.role === "admin"
+              {canSeeAllTickets(currentUser) || viewableDepartmentIds(currentUser).length > 0
                 ? "Ver todos los tickets"
                 : "Ver mis tickets"}
             </button>

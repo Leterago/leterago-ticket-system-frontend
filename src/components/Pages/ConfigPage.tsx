@@ -16,7 +16,7 @@ import {
   clearUsersMutationError,
 } from "../../store/usersSlice";
 import type { AppUser, UserRole } from "../../store/authSlice";
-import { DEPARTMENTS } from "../../config/catalog";
+import { DEPARTMENTS, departmentLabel } from "../../config/catalog";
 import type { DepartmentId } from "../../types/types";
 import { getInitials } from "../../lib/initials";
 import { api, ApiError } from "../../api/client";
@@ -113,11 +113,7 @@ const ROLE_OPTIONS: { value: UserRole; label: string; icon: typeof Shield; bg: s
   { value: "requester",   label: "Solicitante",   icon: User,   bg: "bg-slate-400",   description: "Crea y ve sus propios tickets" },
 ];
 
-const DEPARTMENT_LIST: DepartmentId[] = [
-  "compras",
-  "servicios-generales",
-  "mantenimiento-seguridad",
-];
+const DEPARTMENT_LIST = Object.keys(DEPARTMENTS) as DepartmentId[];
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
 
@@ -243,6 +239,15 @@ function UsersTab({ newUserTick = 0 }: { newUserTick?: number }) {
       )}
 
       <div className="flex flex-col bg-white border border-gray-200 rounded-lg overflow-hidden">
+        {/* Header with total user count */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+          <h3 className="text-sm font-semibold text-gray-700">Usuarios</h3>
+          <span className="text-xs font-medium text-gray-400">
+            {filteredUsers.length === users.length
+              ? `${users.length} ${users.length === 1 ? "usuario" : "usuarios"} en total`
+              : `${filteredUsers.length} de ${users.length} usuarios`}
+          </span>
+        </div>
         {/* Filter bar */}
         <div className="flex flex-wrap items-center gap-3 p-4 border-b border-gray-100">
           <div className="relative flex-1 min-w-48">
@@ -328,18 +333,14 @@ function UsersTab({ newUserTick = 0 }: { newUserTick?: number }) {
                     {/* Estado */}
                     <Td><StatusBadge status={u.status} lastAccess={u.lastAccess} /></Td>
 
-                    {/* Departamentos */}
+                    {/* Departamento de origen */}
                     <Td>
-                      {u.departments.length === 0 ? (
-                        <span className="text-gray-400 italic text-xs">Sin departamentos</span>
+                      {u.originDepartmentId ? (
+                        <span className="inline-flex items-center text-[11px] border px-2 py-1 bg-white text-[#0047AC] border-[#0047AC]/30 rounded-md font-normal">
+                          {departmentLabel(u.originDepartmentId)}
+                        </span>
                       ) : (
-                        <div className="flex gap-1 flex-wrap">
-                          {u.departments.map((d) => (
-                            <span key={d.departmentId} className="inline-flex items-center text-[11px] border px-2 py-1 bg-white text-[#0047AC] border-[#0047AC]/30 rounded-md font-normal">
-                              {DEPARTMENTS[d.departmentId as DepartmentId]?.label ?? d.departmentId}
-                            </span>
-                          ))}
-                        </div>
+                        <span className="text-gray-400 italic text-xs">Otro</span>
                       )}
                     </Td>
 
@@ -1025,26 +1026,8 @@ function DeleteRoleModal({
 // User form modal (unchanged from original)
 // ─────────────────────────────────────────────────────────────────────────────
 
-type DeptEntry = { departmentId: DepartmentId; role: "admin" | "participant" | "requester" };
-
-const DEPT_ROLE_OPTIONS: { value: DeptEntry["role"]; label: string; activeClass: string }[] = [
-  { value: "admin",       label: "Admin",       activeClass: "bg-[#0047AC] border-[#0047AC] text-white" },
-  { value: "participant", label: "Participante", activeClass: "bg-emerald-500 border-emerald-500 text-white" },
-  { value: "requester",   label: "Solicitante",  activeClass: "bg-slate-500 border-slate-500 text-white" },
-];
-
-const ROLE_INFO: Record<UserRole, { label: string; description: string; Icon: typeof Shield; color: string }> = {
-  master:      { label: "Máster",       description: "Acceso total + configuración del sistema",           Icon: Shield, color: "text-indigo-600" },
-  admin:       { label: "Admin",        description: "Asigna y confirma tickets en sus departamentos",     Icon: Shield, color: "text-[#0047AC]" },
-  participant: { label: "Participante", description: "Ve y resuelve tickets de sus departamentos",          Icon: Users,  color: "text-emerald-600" },
-  requester:   { label: "Solicitante",  description: "Crea y ve únicamente sus propios tickets",           Icon: User,   color: "text-slate-500" },
-};
-
-function deriveRole(depts: DeptEntry[]): UserRole {
-  if (depts.some((d) => d.role === "admin")) return "admin";
-  if (depts.some((d) => d.role === "participant")) return "participant";
-  return "requester";
-}
+// Una asignación de rol con ámbito: departmentId = null ⇒ GLOBAL (toda la app).
+type Assignment = { roleName: string; departmentId: DepartmentId | null };
 
 function UserFormModal({
   mode, initial, isSelf, onClose, onSubmit,
@@ -1053,37 +1036,30 @@ function UserFormModal({
   initial: AppUser | null;
   isSelf: boolean;
   onClose: () => void;
-  onSubmit: (body: { name: string; email: string; password?: string; role: UserRole; departments: DeptEntry[]; originDepartmentId: string | null }) => void;
+  onSubmit: (body: { name: string; email: string; password?: string; assignments: Assignment[]; originDepartmentId: string | null }) => void;
 }) {
+  const currentUser = useCurrentUser();
   const [name, setName] = useState(initial?.name ?? "");
   const [email, setEmail] = useState(initial?.email ?? "");
   const [password, setPassword] = useState("");
-  const [isMaster, setIsMaster] = useState(initial?.role === "master");
   const [originDepartmentId, setOriginDepartmentId] = useState<string | null>(initial?.originDepartmentId ?? null);
-  const [departments, setDepartments] = useState<DeptEntry[]>(
-    (initial?.departments ?? []).map((d) => ({
-      ...d,
-      role: ((d.role as string) === "user" ? "participant" : d.role) as DeptEntry["role"],
-    })),
+  const [assignments, setAssignments] = useState<Assignment[]>(
+    (initial?.roleAssignments ?? []).map((a) => ({ roleName: a.roleName, departmentId: a.departmentId })),
   );
+  const [roles, setRoles] = useState<RoleDefinition[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const derivedRole: UserRole = isMaster ? "master" : deriveRole(departments);
-  const roleInfo = ROLE_INFO[derivedRole];
+  // Lista de roles disponibles para las asignaciones.
+  useEffect(() => {
+    api.getRoles(currentUser.id).then(setRoles).catch(() => setRoles([]));
+  }, [currentUser.id]);
 
-  const isDeptChecked = (d: DepartmentId) => departments.some((x) => x.departmentId === d);
-  const getDeptRole = (d: DepartmentId): DeptEntry["role"] =>
-    departments.find((x) => x.departmentId === d)?.role ?? "participant";
-
-  const toggleDept = (d: DepartmentId) => {
-    setDepartments((prev) =>
-      isDeptChecked(d) ? prev.filter((x) => x.departmentId !== d) : [...prev, { departmentId: d, role: "participant" }],
-    );
-  };
-
-  const setDeptRole = (d: DepartmentId, r: DeptEntry["role"]) => {
-    setDepartments((prev) => prev.map((x) => (x.departmentId === d ? { ...x, role: r } : x)));
-  };
+  const addAssignment = () =>
+    setAssignments((prev) => [...prev, { roleName: roles[0]?.name ?? "requester", departmentId: null }]);
+  const removeAssignment = (i: number) =>
+    setAssignments((prev) => prev.filter((_, idx) => idx !== i));
+  const setAssignment = (i: number, patch: Partial<Assignment>) =>
+    setAssignments((prev) => prev.map((a, idx) => (idx === i ? { ...a, ...patch } : a)));
 
   const handleSubmit = () => {
     const e: Record<string, string> = {};
@@ -1099,7 +1075,15 @@ function UserFormModal({
       e.password = "Mínimo 6 caracteres";
     }
     if (Object.keys(e).length > 0) { setErrors(e); return; }
-    onSubmit({ name: name.trim(), email: email.trim(), password: password.length > 0 ? password : undefined, role: derivedRole, departments, originDepartmentId });
+    // Deduplicar asignaciones por (rol, ámbito).
+    const seen = new Set<string>();
+    const clean = assignments.filter((a) => {
+      const k = `${a.roleName}|${a.departmentId ?? ""}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+    onSubmit({ name: name.trim(), email: email.trim(), password: password.length > 0 ? password : undefined, assignments: clean, originDepartmentId });
   };
 
   return (
@@ -1136,28 +1120,52 @@ function UserFormModal({
             />
           </Field>
 
-          <Field label="Rol" hint={isSelf && isMaster ? "No puedes quitarte el rol Máster a ti mismo" : undefined}>
-            <button type="button" disabled={isSelf && initial?.role === "master"} onClick={() => { setIsMaster((v) => { if (!v) setDepartments([]); return !v; }); }}
-              className={`flex items-center gap-3 w-full px-3.5 py-2.5 rounded-md border text-sm transition ${isMaster ? "bg-indigo-50 border-indigo-400" : "border-gray-200 hover:border-gray-300"} ${isSelf && initial?.role === "master" ? "opacity-60 cursor-not-allowed" : ""}`}
-            >
-              <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${isMaster ? "bg-indigo-600 border-indigo-600" : "border-gray-400"}`}>
-                {isMaster && <div className="w-2 h-2 bg-white rounded-sm" />}
-              </div>
-              <div className="flex flex-col items-start">
-                <span className={`text-xs font-semibold ${isMaster ? "text-indigo-600" : "text-gray-600"}`}>Máster</span>
-                <span className="text-[10px] text-gray-400 font-normal">Acceso total + configuración del sistema</span>
-              </div>
-            </button>
-            {!isMaster && (
-              <div className="flex items-center gap-3 px-3.5 py-2.5 rounded-md bg-gray-50 border border-gray-200">
-                <roleInfo.Icon size={15} className={roleInfo.color} />
-                <div className="flex flex-col">
-                  <span className={`text-xs font-semibold ${roleInfo.color}`}>{roleInfo.label}</span>
-                  <span className="text-[10px] text-gray-400 font-normal">{roleInfo.description}</span>
+          <Field
+            label="Asignaciones de rol"
+            hint={isSelf
+              ? "Mantén una asignación Global con gestión de usuarios para no bloquearte a ti mismo."
+              : "Cada asignación otorga los permisos de un rol en un departamento, o de forma Global (toda la app)."}
+          >
+            <div className="flex flex-col gap-2">
+              {assignments.length === 0 && (
+                <p className="text-xs text-gray-400 italic px-0.5">
+                  Sin asignaciones — el usuario no podrá hacer nada hasta agregar una.
+                </p>
+              )}
+              {assignments.map((a, i) => (
+                <div key={i} className="flex items-center gap-2 rounded-md border border-gray-200 px-2.5 py-2">
+                  <select
+                    value={a.roleName}
+                    onChange={(ev) => setAssignment(i, { roleName: ev.target.value })}
+                    className="flex-1 min-w-0 bg-gray-50 border border-gray-200 rounded-md px-2.5 py-2 text-sm outline-none focus:border-[#0047AC]"
+                  >
+                    {roles.length === 0 && <option value={a.roleName}>{a.roleName}</option>}
+                    {roles.map((r) => (
+                      <option key={r.name} value={r.name}>{r.displayName || r.name}</option>
+                    ))}
+                  </select>
+                  <span className="text-[11px] text-gray-400 shrink-0">en</span>
+                  <select
+                    value={a.departmentId ?? ""}
+                    onChange={(ev) => setAssignment(i, { departmentId: (ev.target.value || null) as DepartmentId | null })}
+                    className="flex-1 min-w-0 bg-gray-50 border border-gray-200 rounded-md px-2.5 py-2 text-sm outline-none focus:border-[#0047AC]"
+                  >
+                    <option value="">Global (toda la app)</option>
+                    {DEPARTMENT_LIST.map((d) => (
+                      <option key={d} value={d}>{DEPARTMENTS[d].label}</option>
+                    ))}
+                  </select>
+                  <button type="button" onClick={() => removeAssignment(i)}
+                    className="p-1.5 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 shrink-0">
+                    <X size={14} />
+                  </button>
                 </div>
-                <span className="ml-auto text-[10px] text-gray-400 italic whitespace-nowrap">desde departamentos</span>
-              </div>
-            )}
+              ))}
+              <button type="button" onClick={addAssignment}
+                className="self-start flex items-center gap-1.5 text-sm text-[#0047AC] font-semibold hover:underline mt-1">
+                <Plus size={14} /> Agregar asignación
+              </button>
+            </div>
           </Field>
 
           <Field label="Departamento de origen" hint="Área a la que pertenece el usuario (para registrar la procedencia en solicitudes)">
@@ -1166,73 +1174,13 @@ function UserFormModal({
               onChange={(e) => setOriginDepartmentId(e.target.value || null)}
               className="w-full bg-gray-50 border border-gray-200 rounded-md px-3.5 py-2.5 text-sm outline-none focus:border-[#0047AC] focus:ring-2 focus:ring-blue-100"
             >
-              <option value="">Sin departamento de origen</option>
-              {DEPARTMENT_LIST.map((d) => (
-                <option key={d} value={d}>{DEPARTMENTS[d].label}</option>
+              <option value="">Otro / sin departamento</option>
+              {Object.values(DEPARTMENTS).map((d) => (
+                <option key={d.id} value={d.id}>{d.label}</option>
               ))}
             </select>
           </Field>
 
-          <Field label="Departamentos">
-            {isMaster && (
-              <p className="text-xs text-gray-400 italic px-0.5">
-                El rol Máster tiene acceso a todos los departamentos automáticamente.
-              </p>
-            )}
-            <div className={`flex flex-col gap-2 ${isMaster ? "opacity-40 pointer-events-none select-none" : ""}`}>
-              {DEPARTMENT_LIST.map((d) => {
-                const checked = isDeptChecked(d);
-                const dRole = getDeptRole(d);
-                return (
-                  <div key={d} className={`rounded-md border text-sm transition-colors overflow-hidden ${checked ? "border-[#0047AC]" : "border-gray-200"}`}>
-                    {/* Header row */}
-                    <button
-                      type="button"
-                      onClick={() => toggleDept(d)}
-                      className={`w-full flex items-center gap-3 px-3.5 py-2.5 text-left transition-colors ${checked ? "bg-blue-50" : "hover:bg-gray-50"}`}
-                    >
-                      <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${checked ? "bg-[#0047AC] border-[#0047AC]" : "border-gray-400"}`}>
-                        {checked && <Check size={10} className="text-white" strokeWidth={2.5} />}
-                      </div>
-                      <span className={`font-medium flex-1 ${checked ? "text-[#0047AC]" : "text-gray-600"}`}>
-                        {DEPARTMENTS[d].label}
-                      </span>
-                      {checked && (
-                        <span className="text-[10px] text-[#0047AC]/60 font-semibold shrink-0">
-                          {DEPT_ROLE_OPTIONS.find(o => o.value === dRole)?.label}
-                        </span>
-                      )}
-                      <ChevronDown
-                        size={14}
-                        className={`shrink-0 transition-transform duration-200 ${checked ? "text-[#0047AC] rotate-180" : "text-gray-400"}`}
-                      />
-                    </button>
-
-                    {/* Role accordion */}
-                    {checked && (
-                      <div className="px-3.5 py-3 border-t border-[#0047AC]/15 bg-blue-50/40">
-                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Rol en este departamento</p>
-                        <div className="flex gap-2 flex-wrap">
-                          {DEPT_ROLE_OPTIONS.map((opt) => (
-                            <button
-                              key={opt.value}
-                              type="button"
-                              onClick={() => setDeptRole(d, opt.value)}
-                              className={`text-[11px] font-semibold px-3 py-1.5 rounded-md border transition-colors ${
-                                dRole === opt.value ? opt.activeClass : "border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-700"
-                              }`}
-                            >
-                              {opt.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </Field>
         </div>
 
         <div className="flex gap-3 px-6 py-4 border-t border-gray-100 sticky bottom-0 bg-white">

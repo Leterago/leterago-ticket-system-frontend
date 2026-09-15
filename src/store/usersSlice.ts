@@ -27,7 +27,11 @@ function adapt(u: ServerUser): AppUser {
     lastAccess: u.lastAccess,
     originDepartmentId: u.originDepartmentId,
     departments: u.departments,
-    permissions: [],
+    roleAssignments: u.roleAssignments ?? [],
+    // Permisos efectivos resueltos (scoped RBAC), iguales para todos los usuarios.
+    permissions: u.permissions ?? [],
+    globalPermissions: u.globalPermissions ?? [],
+    deptPermissions: u.deptPermissions ?? [],
   };
 }
 

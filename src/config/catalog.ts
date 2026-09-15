@@ -78,7 +78,66 @@ export const DEPARTMENTS: Record<DepartmentId, DepartmentDef> = {
     label: "Mantenimiento y Seguridad",
     categories: ["solicitud-mantenimiento"],
   },
+  // Departamentos sin categorías por ahora: no aparecen en la creación de tickets,
+  // pero siguen siendo departamentos normales y pueden recibir categorías después.
+  "administracion-finanzas": {
+    id: "administracion-finanzas",
+    label: "Administración y Finanzas",
+    categories: [],
+  },
+  "tecnologia": {
+    id: "tecnologia",
+    label: "Tecnología",
+    categories: [],
+  },
+  "finanzas": {
+    id: "finanzas",
+    label: "Finanzas",
+    categories: [],
+  },
+  "personas-cultura": {
+    id: "personas-cultura",
+    label: "Personas & Cultura",
+    categories: [],
+  },
+  "calidad": {
+    id: "calidad",
+    label: "Calidad",
+    categories: [],
+  },
+  "comercial": {
+    id: "comercial",
+    label: "Comercial",
+    categories: [],
+  },
+  "creditos-cobros": {
+    id: "creditos-cobros",
+    label: "Créditos y Cobros",
+    categories: [],
+  },
+  "gerencia-general": {
+    id: "gerencia-general",
+    label: "Gerencia General",
+    categories: [],
+  },
+  "caja": {
+    id: "caja",
+    label: "Caja",
+    categories: [],
+  },
 };
+
+// Ids de departamentos con al menos una categoría hoy: los únicos donde se pueden
+// crear o filtrar tickets. DERIVADO de las categorías (no es una clasificación fija):
+// si un departamento recibe una categoría más adelante, aparece aquí automáticamente.
+export const DEPARTMENT_IDS_WITH_CATEGORIES = (Object.keys(DEPARTMENTS) as DepartmentId[])
+  .filter((id) => DEPARTMENTS[id].categories.length > 0);
+
+/** Etiqueta legible de un departamento; "Otro" si es null (origen no especificado). */
+export function departmentLabel(id: string | null | undefined): string {
+  if (!id) return "Otro";
+  return (DEPARTMENTS as Record<string, DepartmentDef>)[id]?.label ?? id;
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

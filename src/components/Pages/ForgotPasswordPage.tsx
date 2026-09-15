@@ -1,27 +1,19 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Eye, EyeOff, ArrowLeft } from "lucide-react";
-import { useAppDispatch } from "../../store/hooks";
-import { setCurrentUser } from "../../store/authSlice";
+import { Eye, EyeOff, ArrowLeft, CheckCircle2 } from "lucide-react";
 import { api, ApiError } from "../../api/client";
 import Logo from "../Atoms/Logo";
-import { DEPARTMENTS } from "../../config/catalog";
 
-const EMAIL_DOMAIN = "@leterago.com.do";
-
-export default function RegisterPage() {
-  const dispatch = useAppDispatch();
+export default function ForgotPasswordPage() {
   const navigate = useNavigate();
 
-  const [step, setStep] = useState<"details" | "code">("details");
+  const [step, setStep] = useState<"email" | "reset" | "done">("email");
 
-  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [originDept, setOriginDept] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [code, setCode] = useState("");
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,32 +24,15 @@ export default function RegisterPage() {
   const handleStart = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (!name.trim() || !normalizedEmail || !password) return;
-    if (!normalizedEmail.endsWith(EMAIL_DOMAIN)) {
-      setError(`El correo debe terminar en ${EMAIL_DOMAIN}`);
-      return;
-    }
-    if (password.length < 6) {
-      setError("La contraseña debe tener al menos 6 caracteres");
-      return;
-    }
-    if (password !== confirm) {
-      setError("Las contraseñas no coinciden");
-      return;
-    }
-    if (!originDept) {
-      setError("Selecciona tu departamento de origen");
-      return;
-    }
+    if (!normalizedEmail) return;
 
     setLoading(true);
     try {
-      const originDepartmentId = originDept === "otro" ? null : originDept;
-      const res = await api.registerStart({ name: name.trim(), email: normalizedEmail, password, originDepartmentId });
-      setStep("code");
+      const res = await api.resetStart({ email: normalizedEmail });
+      setStep("reset");
       setInfo(
         res.emailSent
-          ? `Enviamos un código de confirmación a ${normalizedEmail}.`
+          ? `Si existe una cuenta con ${normalizedEmail}, enviamos un código para restablecer la contraseña.`
           : "SMTP deshabilitado: revisa la consola del servidor para obtener el código.",
       );
     } catch (err) {
@@ -74,12 +49,20 @@ export default function RegisterPage() {
       setError("El código debe tener 6 dígitos");
       return;
     }
+    if (password.length < 6) {
+      setError("La contraseña debe tener al menos 6 caracteres");
+      return;
+    }
+    if (password !== confirm) {
+      setError("Las contraseñas no coinciden");
+      return;
+    }
 
     setLoading(true);
     try {
-      const user = await api.registerVerify({ email: normalizedEmail, code });
-      dispatch(setCurrentUser(user));
-      navigate("/", { replace: true });
+      await api.resetVerify({ email: normalizedEmail, code, password });
+      setStep("done");
+      setInfo(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Error de conexión");
     } finally {
@@ -101,7 +84,7 @@ export default function RegisterPage() {
         {/* Card */}
         <div className="bg-white border border-gray-200 rounded-lg p-8">
           <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wider mb-6">
-            {step === "details" ? "Crear cuenta" : "Confirmar correo"}
+            {step === "email" ? "Recuperar contraseña" : step === "reset" ? "Nueva contraseña" : "Contraseña actualizada"}
           </h2>
 
           {info && (
@@ -110,25 +93,12 @@ export default function RegisterPage() {
             </p>
           )}
 
-          {step === "details" ? (
+          {step === "email" && (
             <form onSubmit={handleStart} className="flex flex-col gap-4">
-              {/* Nombre */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                  Nombre completo
-                </label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => { setName(e.target.value); setError(null); }}
-                  placeholder="Tu nombre"
-                  autoComplete="name"
-                  required
-                  className="w-full bg-gray-50 border border-gray-200 rounded-md px-3.5 py-2.5 text-sm outline-none focus:border-[#0047AC] focus:ring-2 focus:ring-blue-100 transition-all"
-                />
-              </div>
+              <p className="text-xs text-gray-500 leading-relaxed">
+                Ingresa el correo de tu cuenta y te enviaremos un código para restablecer la contraseña.
+              </p>
 
-              {/* Email */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
                   Correo electrónico
@@ -137,17 +107,52 @@ export default function RegisterPage() {
                   type="email"
                   value={email}
                   onChange={(e) => { setEmail(e.target.value); setError(null); }}
-                  placeholder={`usuario${EMAIL_DOMAIN}`}
+                  placeholder="usuario@leterago.com.do"
                   autoComplete="email"
                   required
                   className="w-full bg-gray-50 border border-gray-200 rounded-md px-3.5 py-2.5 text-sm outline-none focus:border-[#0047AC] focus:ring-2 focus:ring-blue-100 transition-all"
                 />
               </div>
 
-              {/* Contraseña */}
+              {error && (
+                <p className="text-xs text-red-600 font-medium bg-red-50 border border-red-200 rounded-md px-3 py-2">
+                  {error}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading || !normalizedEmail}
+                className="w-full bg-[#0047AC] text-white py-2.5 rounded-md font-semibold text-sm hover:bg-blue-700 transition-colors mt-1 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {loading ? "Enviando código..." : "Enviar código"}
+              </button>
+            </form>
+          )}
+
+          {step === "reset" && (
+            <form onSubmit={handleVerify} className="flex flex-col gap-4">
+              {/* Código */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                  Contraseña
+                  Código de verificación
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={code}
+                  onChange={(e) => { setCode(e.target.value.replace(/\D/g, "").slice(0, 6)); setError(null); }}
+                  placeholder="000000"
+                  autoComplete="one-time-code"
+                  required
+                  className="w-full bg-gray-50 border border-gray-200 rounded-md px-3.5 py-2.5 text-center text-lg font-mono tracking-[0.4em] outline-none focus:border-[#0047AC] focus:ring-2 focus:ring-blue-100 transition-all"
+                />
+              </div>
+
+              {/* Nueva contraseña */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                  Nueva contraseña
                 </label>
                 <div className="relative">
                   <input
@@ -186,58 +191,6 @@ export default function RegisterPage() {
                 />
               </div>
 
-              {/* Departamento de origen */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                  Departamento de origen
-                </label>
-                <select
-                  value={originDept}
-                  onChange={(e) => { setOriginDept(e.target.value); setError(null); }}
-                  required
-                  className="w-full bg-gray-50 border border-gray-200 rounded-md px-3.5 py-2.5 text-sm outline-none focus:border-[#0047AC] focus:ring-2 focus:ring-blue-100 transition-all"
-                >
-                  <option value="" disabled>Selecciona tu departamento</option>
-                  {Object.values(DEPARTMENTS).map((d) => (
-                    <option key={d.id} value={d.id}>{d.label}</option>
-                  ))}
-                  <option value="otro">Otro</option>
-                </select>
-              </div>
-
-              {error && (
-                <p className="text-xs text-red-600 font-medium bg-red-50 border border-red-200 rounded-md px-3 py-2">
-                  {error}
-                </p>
-              )}
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-[#0047AC] text-white py-2.5 rounded-md font-semibold text-sm hover:bg-blue-700 transition-colors mt-1 disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                {loading ? "Enviando código..." : "Continuar"}
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={handleVerify} className="flex flex-col gap-4">
-              {/* Código */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                  Código de confirmación
-                </label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={code}
-                  onChange={(e) => { setCode(e.target.value.replace(/\D/g, "").slice(0, 6)); setError(null); }}
-                  placeholder="000000"
-                  autoComplete="one-time-code"
-                  required
-                  className="w-full bg-gray-50 border border-gray-200 rounded-md px-3.5 py-2.5 text-center text-lg font-mono tracking-[0.4em] outline-none focus:border-[#0047AC] focus:ring-2 focus:ring-blue-100 transition-all"
-                />
-              </div>
-
               {error && (
                 <p className="text-xs text-red-600 font-medium bg-red-50 border border-red-200 rounded-md px-3 py-2">
                   {error}
@@ -249,30 +202,47 @@ export default function RegisterPage() {
                 disabled={loading || code.length !== 6}
                 className="w-full bg-[#0047AC] text-white py-2.5 rounded-md font-semibold text-sm hover:bg-blue-700 transition-colors mt-1 disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                {loading ? "Verificando..." : "Crear cuenta"}
+                {loading ? "Guardando..." : "Restablecer contraseña"}
               </button>
 
               <button
                 type="button"
-                onClick={() => { setStep("details"); setError(null); setInfo(null); setCode(""); }}
+                onClick={() => { setStep("email"); setError(null); setInfo(null); setCode(""); setPassword(""); setConfirm(""); }}
                 className="text-xs text-gray-500 font-semibold hover:text-gray-700 flex items-center justify-center gap-1"
               >
-                <ArrowLeft size={13} /> Cambiar datos
+                <ArrowLeft size={13} /> Cambiar correo
               </button>
             </form>
+          )}
+
+          {step === "done" && (
+            <div className="flex flex-col items-center gap-4 text-center">
+              <CheckCircle2 size={44} className="text-green-500" />
+              <p className="text-sm text-gray-600 leading-relaxed">
+                Tu contraseña se actualizó correctamente. Ya puedes iniciar sesión con tus nuevas credenciales.
+              </p>
+              <button
+                onClick={() => navigate("/login")}
+                className="w-full bg-[#0047AC] text-white py-2.5 rounded-md font-semibold text-sm hover:bg-blue-700 transition-colors"
+              >
+                Iniciar sesión
+              </button>
+            </div>
           )}
         </div>
 
         {/* Volver a login */}
-        <p className="text-center text-sm text-gray-500 mt-6">
-          ¿Ya tienes cuenta?{" "}
-          <button
-            onClick={() => navigate("/login")}
-            className="text-[#0047AC] font-semibold hover:underline"
-          >
-            Iniciar sesión
-          </button>
-        </p>
+        {step !== "done" && (
+          <p className="text-center text-sm text-gray-500 mt-6">
+            ¿Recordaste tu contraseña?{" "}
+            <button
+              onClick={() => navigate("/login")}
+              className="text-[#0047AC] font-semibold hover:underline"
+            >
+              Iniciar sesión
+            </button>
+          </p>
+        )}
       </div>
     </div>
   );

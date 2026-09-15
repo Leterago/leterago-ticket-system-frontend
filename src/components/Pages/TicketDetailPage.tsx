@@ -16,7 +16,7 @@ import { exportMantenimientoDocx } from "../../lib/exportMantenimiento";
 import type { SolicitudMantenimientoPayload } from "../../forms/SolicitudMantenimientoForm";
 import { useState, useRef, useEffect, useMemo } from "react";
 import { type User as AssigneeUser } from "../Organisms/AssigneePicker";
-import { canEditTicket, canChangeStatus, canAssign, canConfirm } from "../../store/permissions";
+import { canEditTicket, canChangeStatus, canAssign, canConfirm, canChangeStatusInDept } from "../../store/permissions";
 import { getCategoryForm } from "../../forms/registry";
 import TicketDetailsPanel from "../Organisms/TicketDetailsPanel";
 import TicketRatingCard from "../Organisms/TicketRatingCard";
@@ -26,6 +26,10 @@ import { api } from "../../api/client";
 import type { TicketEvent } from "../../types/types";
 
 const statusOptions: TicketStatus[] = ["pending", "in_progress", "completed", "confirmed", "canceled"];
+// Avanzar el estado exige que el ticket tenga un asignado (espeja la regla del
+// backend en lib/catalog.ts). "pending" y "canceled" no requieren asignado.
+const STATUSES_REQUIRING_ASSIGNEE: TicketStatus[] = ["in_progress", "completed", "confirmed"];
+const statusRequiresAssignee = (s: TicketStatus) => STATUSES_REQUIRING_ASSIGNEE.includes(s);
 const statusLabels: Record<TicketStatus, string> = {
   pending: "Pendiente", in_progress: "En progreso", completed: "Resuelto",
   confirmed: "Confirmado", canceled: "Cancelado",
@@ -53,10 +57,12 @@ function eventDisplay(e: TicketEvent): { title: string; color: string } {
 // ─── Box-style dropdown ───────────────────────────────────────────────────────
 function BoxDropdown<T extends string>({
   label, displayValue, options, optionLabels, current, onSelect,
+  disabledOptions, disabledHint,
 }: {
   label: string; displayValue: React.ReactNode;
   options: T[]; optionLabels: Record<T, string>;
   current: T; onSelect: (v: T) => void;
+  disabledOptions?: T[]; disabledHint?: string;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -72,7 +78,7 @@ function BoxDropdown<T extends string>({
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex flex-row items-center gap-3 border border-gray-300 rounded-lg px-3 py-2 hover:border-[#0047AC] hover:bg-blue-50/30 transition-colors"
+        className="flex flex-row items-center gap-3 bg-white border border-gray-300 rounded-lg px-3 py-2 hover:border-[#0047AC] hover:bg-blue-50/30 transition-colors"
       >
         <span className="text-[10px] font-bold text-gray-600 uppercase tracking-wider shrink-0">{label}</span>
         <div className="flex items-center gap-1.5">
@@ -82,17 +88,23 @@ function BoxDropdown<T extends string>({
       </button>
       {open && (
         <div className="absolute right-0 top-[calc(100%+6px)] bg-white border border-gray-300 rounded-lg shadow-sm z-50 overflow-hidden min-w-44">
-          {options.map((opt) => (
-            <button
-              key={opt}
-              onClick={() => { onSelect(opt); setOpen(false); }}
-              className={`w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors flex items-center justify-between
-                ${opt === current ? "font-semibold text-[#0047AC]" : "text-gray-700"}`}
-            >
-              {optionLabels[opt]}
-              {opt === current && <Check size={13} className="text-[#0047AC]" />}
-            </button>
-          ))}
+          {options.map((opt) => {
+            const disabled = !!disabledOptions?.includes(opt) && opt !== current;
+            return (
+              <button
+                key={opt}
+                disabled={disabled}
+                title={disabled ? disabledHint : undefined}
+                onClick={() => { if (disabled) return; onSelect(opt); setOpen(false); }}
+                className={`w-full text-left px-4 py-2.5 text-sm transition-colors flex items-center justify-between
+                  ${disabled ? "opacity-40 cursor-not-allowed" : "hover:bg-gray-50"}
+                  ${opt === current ? "font-semibold text-[#0047AC]" : "text-gray-700"}`}
+              >
+                {optionLabels[opt]}
+                {opt === current && <Check size={13} className="text-[#0047AC]" />}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
@@ -218,11 +230,13 @@ export default function TicketDetail() {
     [ticket?.categoryId],
   );
 
-  // All users in this ticket's department — for AssigneePicker
+  // Sugerencias del selector "Asignado a": solo quienes pueden CAMBIAR EL ESTADO
+  // de tickets en el departamento del ticket (master, admin del departamento, o
+  // miembro cuyo rol concede tickets.change_status). Espeja el backend.
   const assigneeUsers: AssigneeUser[] = useMemo(() => {
     if (!ticket) return [];
     return allUsers
-      .filter((u) => u.role === "master" || u.departments.some((d) => d.departmentId === ticket.departmentId))
+      .filter((u) => canChangeStatusInDept(u, ticket.departmentId))
       .map((u) => ({ id: u.id, name: u.name }));
   }, [allUsers, ticket]);
 
@@ -287,16 +301,17 @@ export default function TicketDetail() {
       <div className="min-h-screen bg-gray-50 p-6 max-w-7xl mx-auto">
 
         {/* ── Top action bar ── */}
-        <div className="bg-white border border-gray-300 rounded-xl px-4 py-3 flex items-center justify-between gap-4 flex-wrap mb-6">
-          {/* Left: back + ID + badges */}
+        <div className="py-2 flex items-center justify-between gap-4 flex-wrap mb-6">
+          {/* Left: back + code badge */}
           <div className="flex items-center gap-3 flex-wrap">
             <button
               onClick={() => navigate(-1)}
-              className="p-2 rounded-md hover:bg-gray-100 text-gray-500 transition-all"
+              className="-ml-2 p-2 rounded-md hover:bg-gray-100 text-gray-500 transition-all"
             >
               <ArrowLeft size={18} />
             </button>
-            <span className="text-2xl font-bold text-gray-700 uppercase tracking-widest font-mono">
+            {/* Ticket code badge — blue outline, same height as the status button */}
+            <span className="h-[46px] flex items-center px-3 text-sm font-extrabold font-mono tracking-wider text-[#0047AC] bg-white border border-[#0047AC] rounded-lg">
               {ticket.id}
             </span>
           </div>
@@ -311,7 +326,10 @@ export default function TicketDetail() {
                 options={allowedStatuses}
                 optionLabels={statusLabels}
                 current={ticket.status}
+                disabledOptions={ticket.assignedToId ? undefined : STATUSES_REQUIRING_ASSIGNEE}
+                disabledHint="Asigna el ticket a alguien antes de avanzar su estado."
                 onSelect={async (s) => {
+                  if (!ticket.assignedToId && statusRequiresAssignee(s)) return;
                   await dispatch(updateTicketAsync({ id: ticket.id, changes: { status: s } }));
                   api.listEvents(currentUser.id, ticket.id).then(setEvents).catch(() => {});
                 }}
@@ -555,4 +573,3 @@ function TimelineItem({ color, title, subtitle, last }: {
     </div>
   );
 }
-

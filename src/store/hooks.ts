@@ -16,13 +16,12 @@ export function useCurrentUser(): AppUser {
 }
 
 /**
- * Returns true if the current user has ALL of the given permission codes.
- * master role always returns true regardless of codes.
+ * Returns true if the current user has ALL of the given app-level permission codes.
+ * Por permiso, sin caso especial por nombre de rol.
  */
 export function usePermission(...codes: string[]): boolean {
   const user = useAppSelector((s) => s.auth.currentUser);
   if (!user) return false;
-  if (user.role === "master") return true;
   const perms = user.permissions ?? [];
   return codes.every((code) => perms.includes(code));
 }

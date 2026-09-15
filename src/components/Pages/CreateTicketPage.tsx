@@ -3,6 +3,7 @@ import { ArrowRight, Filter } from "lucide-react";
 import PageHeader from "../Molecules/PageHeader";
 import { useNavigate } from "react-router-dom";
 import { useCurrentUser } from "../../store/hooks";
+import { canSeeAllTickets, creatableDepartmentIds } from "../../store/permissions";
 import { CATEGORIES, DEPARTMENTS, getCategoriesForDepartments } from "../../config/catalog";
 import type { DepartmentId } from "../../types/types";
 
@@ -13,18 +14,19 @@ export default function CreateTicketPage() {
   const currentUser = useCurrentUser();
   const [deptFilter, setDeptFilter] = useState<DepartmentId | "all">("all");
 
-  // Requesters can create tickets in any department; others are scoped to their working depts
-  const userDeptIds: DepartmentId[] =
-    currentUser.role === "master" || currentUser.role === "requester"
-      ? ALL_DEPT_IDS
-      : currentUser.departments
-          .filter((d) => d.role !== "requester")
-          .map((d) => d.departmentId as DepartmentId);
+  // Categorías de los departamentos donde el usuario puede CREAR (o todos si ve todo).
+  // Se deriva del permiso `tickets.create` (global o por-departamento), NO de la lista
+  // solo-visual `departments`: un requester GLOBAL no tiene entradas por-departamento y
+  // aun así puede crear en todos.
+  const userDeptIds: DepartmentId[] = useMemo(
+    () => (canSeeAllTickets(currentUser) ? ALL_DEPT_IDS : creatableDepartmentIds(currentUser)),
+    [currentUser]
+  );
 
-  // Accessible categories based on user's departments
+  // Accessible categories based on the departments the user can create in
   const accessibleCategories = useMemo(
     () => getCategoriesForDepartments(userDeptIds),
-    [currentUser.id, currentUser.departments] // eslint-disable-line react-hooks/exhaustive-deps
+    [userDeptIds]
   );
 
   // Apply optional department filter
@@ -35,8 +37,11 @@ export default function CreateTicketPage() {
     ) ?? [];
   }, [accessibleCategories, deptFilter]);
 
-  // Only show dept filter selector if user has access to 2+ departments
-  const showDeptFilter = userDeptIds.length > 1;
+  // Departamentos del usuario que tienen categorías hoy (los únicos con algo que crear).
+  const deptPillIds = userDeptIds.filter((id) => DEPARTMENTS[id]?.categories.length > 0);
+
+  // Only show dept filter selector if the user has 2+ departments with categories
+  const showDeptFilter = deptPillIds.length > 1;
 
   return (
     <div className="flex flex-col w-full min-h-screen p-6 max-w-7xl mx-auto">
@@ -58,7 +63,7 @@ export default function CreateTicketPage() {
               onClick={() => setDeptFilter("all")}
               label="Todos"
             />
-            {userDeptIds.map((dId) => (
+            {deptPillIds.map((dId) => (
               <FilterPill
                 key={dId}
                 active={deptFilter === dId}

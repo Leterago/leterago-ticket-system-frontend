@@ -10,7 +10,16 @@ export type CategoryId =
 export type DepartmentId =
   | "compras"
   | "servicios-generales"
-  | "mantenimiento-seguridad";
+  | "mantenimiento-seguridad"
+  | "administracion-finanzas"
+  | "tecnologia"
+  | "finanzas"
+  | "personas-cultura"
+  | "calidad"
+  | "comercial"
+  | "creditos-cobros"
+  | "gerencia-general"
+  | "caja";
 
 // ─── Ticket Status / Priority ─────────────────────────────────────────────────
 export type TicketStatus =

@@ -12,21 +12,29 @@ Hay tres slices principales:
 ```json
 {
   "currentUser": {
-    "id": "cuid...",
-    "name": "Gerald Serra",
-    "email": "gerald@leterago.com",
-    "role": "master",
+    "id": "852108",
+    "name": "Wendy Castillo",
+    "email": "wendy@leterago.com",
     "status": "active",
     "lastAccess": "2026-05-22T15:30:00.000Z",
-    "departments": [
-      { "departmentId": "compras", "role": "admin" }
+    "roleAssignments": [
+      { "roleName": "participant", "departmentId": "servicios-generales" }
+    ],
+    "role": "participant",
+    "departments": [{ "departmentId": "servicios-generales", "role": "participant" }],
+    "permissions": ["tickets.create", "tickets.view_department", "tickets.change_status", "tickets.comment"],
+    "globalPermissions": [],
+    "deptPermissions": [
+      { "departmentId": "servicios-generales", "permissions": ["tickets.create", "tickets.view_department", "tickets.change_status", "tickets.comment"] }
     ]
   }
 }
 ```
-Persistido en `localStorage` bajo la clave `mesa_auth_user`. Incluye además `permissions: string[]` (códigos del rol).
+Persistido en `localStorage` bajo la clave `mesa_auth_user`. **Scoped RBAC:** `roleAssignments` (`{ roleName, departmentId }`, `null` = GLOBAL) es la fuente de verdad; la autorización usa los permisos resueltos (`permissions` app-level con alcance estricto, `globalPermissions`, `deptPermissions`). `role` y `departments` son **derivados solo para mostrar** (avatares, badges, filtro). Ningún chequeo mira un nombre de rol. Tras `fetchUsers`, `App.tsx` refresca estos campos del usuario logueado desde la lista autoritativa (auto-reparación de sesiones viejas).
 
-El login (`/login`) y el registro autoservicio (`/register`) producen este mismo objeto. El registro tiene dos pasos: (1) formulario nombre/correo/contraseña — el correo **debe terminar en `@leterago.com.do`** — que dispara el envío de un código; (2) ingreso del código de 6 dígitos. Al verificar, la cuenta se crea como `requester` con acceso a todos los departamentos y se guarda la sesión vía `setCurrentUser`.
+El login (`/login`) y el registro autoservicio (`/register`) producen este mismo objeto. El registro tiene dos pasos: (1) formulario nombre/correo/contraseña — el correo **debe terminar en `@leterago.com.do`** — que dispara el envío de un código; (2) ingreso del código de 6 dígitos. Al verificar, la cuenta se crea con una asignación `requester` en cada departamento y se guarda la sesión vía `setCurrentUser`.
+
+**Recuperar contraseña** (`/forgot-password`, `ForgotPasswordPage`, enlazado desde el login con "¿Olvidaste tu contraseña?"): flujo de tres pasos — (1) correo → `api.resetStart`; (2) código de 6 dígitos + nueva contraseña → `api.resetVerify`; (3) pantalla de éxito con botón a `/login`. **No** inicia sesión al terminar (a diferencia del registro): el usuario vuelve al login con su nueva contraseña. El mensaje del paso 1 es deliberadamente ambiguo ("si existe una cuenta con ese correo…") porque el backend responde igual exista o no la cuenta (anti-enumeración).
 
 ---
 
@@ -84,6 +92,8 @@ Objeto `Ticket` en el store:
 
 > Los nombres de usuario llegan **normalizados a Title Case** desde el backend (`gErAld` → `Gerald`); el cliente no los transforma — muestra el nombre tal como lo devuelve la API tras crear, editar o registrar. Por eso `createUserAsync`/`updateUserAsync` guardan en el store la respuesta del servidor, no el texto del formulario.
 
+> **Permisos resueltos por usuario (scoped RBAC).** Cada `ServerUser`/`AppUser` trae `roleAssignments` (fuente de verdad) y sus permisos resueltos `permissions` (app-level, alcance estricto) / `globalPermissions` / `deptPermissions[]` (mismos que en `/login`, para *todos* los usuarios de la lista). `store/permissions.ts` autoriza **solo por permiso**, sin nombres de rol: `hasApp(code)` (usa `permissions`) y `hasInDept(dept, code)` (= `globalPermissions ∪ deptPermissions[dept]`). Helpers: `canViewTicket/canEditTicket/canChangeStatus/canAssign/canConfirm/canViewExtended`, `canSeeAllTickets`/`viewableDepartmentIds` (filtros de lista en `Tickets.tsx`/`TicketsTable.tsx`), `creatableDepartmentIds` (departamentos cuyas categorías se ofrecen al crear, en `CreateTicketPage.tsx`), `canViewDashboard` (`dashboard.view`, redirect en `App.tsx`), `canManageUsers/Roles/Departments` (Config). El selector "Asignado a" usa `canChangeStatusInDept(user, dept)` = `hasInDept(dept, "tickets.change_status")`. `role`/`departments` en el usuario son **solo para mostrar** (avatares, badges, filtro por departamento) — **nunca** para autorizar. En particular, `CreateTicketPage` deriva las categorías disponibles de `creatableDepartmentIds` (= `hasInDept(dept, "tickets.create")`), **no** de `departments`: así un `requester` **GLOBAL** (asignación con `departmentId=null`, sin entradas por-departamento) también puede crear en todos los departamentos. Antes leía `departments` y a un global (cuya lista sale vacía) no le aparecía **ninguna** categoría.
+
 ---
 
 ### `notifications`
@@ -114,6 +124,12 @@ La acción `notify({ kind, title, message?, link? })` empuja a ambos a la vez. L
 
 ---
 
+## Tooltips (MUI)
+
+Se usa `@mui/material` (con Emotion) **solo** para su componente `Tooltip`; todo lo demás es Tailwind. Está aplicado en el ícono **"Ver detalles"** de la tabla extendida (`TicketsTable`) y en cada estrella de `StarRating` (con su `RATING_LABELS`). Las estrellas en modo solo lectura están `disabled`, por lo que su `<button>` va envuelto en un `<span>` para que el tooltip se dispare igual. No hay `ThemeProvider`: el `Tooltip` usa el tema por defecto de MUI.
+
+---
+
 ## Preferencias de UI (localStorage)
 
 Algunas preferencias se guardan directamente en `localStorage` (sin Redux ni backend), por navegador:
@@ -123,6 +139,7 @@ Algunas preferencias se guardan directamente en `localStorage` (sin Redux ni bac
 | `mesa_auth_user` | Sesión del usuario (ver el slice `auth`). |
 | `mesa_theme` | Tema `dark`/`light`. Lo **restaura un script inline en `index.html`** antes de montar React —para evitar el parpadeo (FOUC)— añadiendo la clase `.dark` a `<html>`; lo **escribe** `ThemeToggle`. Si no hay valor guardado, respeta el `prefers-color-scheme` del sistema. |
 | `mesa_tickets_view` | Vista de la lista de tickets (`compact` / `extended`) para usuarios con permiso extendido. Se lee al inicializar el estado en `Tickets.tsx` y se reescribe en cada cambio. |
+| `mesa_tickets_page_size` | Filas por página de la tabla compacta (selector "Filas" en la barra de filtros de `TicketsTable.tsx`, al extremo derecho junto a los demás dropdowns; opciones 8/15/25/50/100). Más filas ⇒ tabla más alta (no hay alto fijo). Se lee al inicializar y se reescribe al cambiar. |
 
 ---
 
@@ -138,14 +155,22 @@ Los dos WebP se derivan del `leterago-logo.png` original con `scripts/make-logos
 
 La ruta `/config` está disponible para **todos los usuarios autenticados** (el enlace aparece en el `SideBar` para cualquier rol). La página muestra hasta cuatro pestañas, pero cada una se renderiza solo si el usuario tiene el permiso correspondiente — el gating vive en `ConfigPage.tsx` usando los helpers de `store/permissions.ts`, que **reflejan los guards del backend**:
 
-| Pestaña | Quién la ve | Helper / guard backend |
-|---|---|---|
-| **Notificaciones** | Todos | — (rutas `/me/notification-prefs`, sin guard) |
-| **Roles y Permisos** | `master` o `admin.roles.create` / `admin.roles.edit` | `canManageRoles` ↔ `requirePerm` |
-| **Usuarios** | `master` | `canManageUsers` ↔ `requireMaster` |
-| **Departamentos** | `master` | `canManageDepartments` ↔ `requireMaster` |
+El gating es **por permiso** (alcance estricto: estos códigos solo cuentan desde una asignación global):
 
-La pestaña Notificaciones siempre se incluye y queda activa por defecto cuando es la única visible (p. ej. para `requester`/`participant`). Dentro de ella, `ALL_NOTIF_OPTIONS` filtra además qué preferencias se muestran según el rol (un `requester` solo ve "Solicitud confirmada").
+| Pestaña | Permiso requerido | Helper / guard backend |
+|---|---|---|
+| **Notificaciones** | — (siempre; prefs propias) | — |
+| **Roles y Permisos** | `admin.roles.create` / `admin.roles.edit` | `canManageRoles` ↔ `requirePerm` |
+| **Usuarios** | `users.manage` | `canManageUsers` ↔ `requirePermission("users.manage")` |
+| **Departamentos** | `config.departments.edit` | `canManageDepartments` ↔ `requirePermission("config.departments.edit")` |
+
+La pestaña **Usuarios** es un **editor de la lista de asignaciones** del usuario (`{ rol, departamento | Global }`): `create/updateUser` envían `assignments: [{ roleName, departmentId|null }]`. La pestaña Notificaciones siempre se incluye. Dentro de ella, `ALL_NOTIF_OPTIONS` aún filtra qué preferencias se muestran según el `role` derivado (uso cosmético).
+
+---
+
+## Departamento de origen (registro + tabla de usuarios)
+
+El registro autoservicio (`RegisterPage`) incluye un dropdown **"Departamento de origen"** (requerido) con **todos los departamentos** (`DEPARTMENTS` en `config/catalog.ts`) más **"Otro"** (→ `originDepartmentId: null`). La columna **"Departamentos"** de la tabla de usuarios (Config → Usuarios) muestra **solo el departamento de origen** (`departmentLabel(u.originDepartmentId)`), no los departamentos de acceso; `null` se muestra como "Otro". Un departamento sin categorías (hoy todos salvo `compras`, `servicios-generales` y `mantenimiento-seguridad`) es un departamento normal que **aún** no aparece en la creación/filtros de tickets — eso se deriva en vivo de sus categorías (`DEPARTMENT_IDS_WITH_CATEGORIES`), no es una clasificación fija; al recibir una categoría aparece automáticamente. El editor de usuarios en Config ofrece todos los departamentos como origen y como acceso.
 
 ---
 
@@ -170,6 +195,12 @@ Tipos posibles: `created`, `status_changed`, `assigned`, `unassigned`, `priority
 
 ---
 
+## Cambio de estado: requiere asignación
+
+El selector **Estado** de la página de detalle (`TicketDetailPage`) **deshabilita** las opciones que avanzan el ticket —`En progreso`, `Resuelto`, `Confirmado`— mientras el ticket **no tenga un asignado**, con un *tooltip* ("Asigna el ticket a alguien antes de avanzar su estado."). `Pendiente` y `Cancelado` siempre quedan disponibles. Espeja la validación del backend (`statusRequiresAssignee` en `lib/catalog.ts`, aplicada en `PATCH /tickets/:id`): aunque se forzara el cambio, la API responde `400`. El modo edición no incluye control de estado, así que el `BoxDropdown` de Estado es la **única** vía de transición en la UI.
+
+---
+
 ## Exportación de mantenimiento (FOR-077)
 
 `src/lib/exportMantenimiento.ts` genera un `.docx` que reproduce **exactamente** el formato del formulario oficial **FOR-077 "Orden de Trabajo de Mantenimiento" V-4** (fuente Verdana, A4, encabezado con logo + título + bloque de documento, casillas "NIVEL DE PRIORIDAD", barras negras `DESCRIPCION` / `REALIZADO POR` / `OBSERVACIONES`, pie confidencial). Solo se rellenan los campos que captura la app:
@@ -186,3 +217,22 @@ Tipos posibles: `created`, `status_changed`, `assigned`, `unassigned`, `priority
 | Observaciones | `payload.observaciones` |
 
 > El logo va incrustado desde `src/assets/for077-logo.png`. Es una imagen **inline**, así que su celda en el encabezado debe ser más ancha que la imagen o Word la recorta.
+
+---
+
+## Imágenes adjuntas y visor (lightbox)
+
+La **compresión en el cliente** vive en `src/lib/compressImage.ts` (`compressImage(file, { maxDimension, quality })` + `IMAGE_MAX_BYTES`): canvas → JPEG, redimensiona por el **lado más largo** (máx. 1280 px), calidad 0.75, límite de **5 MB por archivo** antes de comprimir. Devuelve un data-URL. La usan tanto el formulario de compra como los comentarios.
+
+Dos lugares adjuntan imágenes:
+
+- **Categoría `solicitud-compra`** — `SolicitudCompraForm` (`src/forms/SolicitudCompraForm.tsx`) las captura por selector, *drag-and-drop* o **pegado (Ctrl+V)**, las comprime con `compressImage` y las guarda en el payload como `imagenes: string[]`. En `readOnly` (detalle) muestra una rejilla de miniaturas (`object-cover`).
+- **Comentarios de tickets** — `TicketComments` (`src/components/Organisms/TicketComments.tsx`) permite adjuntar imágenes a un comentario (botón 📎 o **pegar**), con previsualización y borrado antes de enviar (**máx. 6**, mismo tope que el backend). Se envían con `api.createComment(userId, ticketId, body, images)`; un comentario puede ser **solo texto, solo imágenes o ambos**. Cada `ServerComment` trae `images: string[]`, que la burbuja renderiza como miniaturas que abren el visor.
+
+El **visor** es `src/components/Organisms/ImageLightbox.tsx`, reutilizable con cualquier `string[]`:
+
+- Se abre al hacer **clic en una miniatura** (en vista y en edición); las miniaturas muestran un icono *zoom* al pasar el cursor (`cursor-zoom-in`). El botón de borrar (✕, solo en edición) hace `stopPropagation` para no abrir el visor.
+- Muestra la imagen **a tamaño completo sin recortar** (`object-contain`, hasta `90vh`/`92vw`).
+- Navega entre varias imágenes con flechas en pantalla o **←/→** del teclado (con vuelta circular) y muestra un contador `n / total`.
+- Cierra con la **✕**, **Escape** o clic en el fondo; permite **descargar** la imagen; **bloquea el scroll del fondo** mientras está abierto.
+- Se renderiza con `createPortal` sobre `document.body` (`z-[9999]`) para escapar de `overflow-hidden`/stacking contexts — siguiendo la convención de overlays Tailwind del proyecto (sin MUI Modal). Si otra categoría añade imágenes en el futuro, basta con reutilizar este componente.

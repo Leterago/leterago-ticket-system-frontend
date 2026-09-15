@@ -26,6 +26,8 @@ type ServerUserRef = {
   name: string;
 };
 
+export type DeptPermissions = { departmentId: DepartmentId; permissions: string[] };
+
 export type ServerUser = {
   id: string;
   name: string;
@@ -34,11 +36,21 @@ export type ServerUser = {
   status: "active" | "inactive" | "pending";
   lastAccess: string | null;
   originDepartmentId: string | null;
+  // `departments` es solo para mostrar (id + rol por-depto). La autorización usa los
+  // permisos efectivos resueltos (scoped RBAC), idénticos a los del backend:
+  //   permissions       → app-level efectivo (con alcance estricto aplicado)
+  //   globalPermissions → permisos de las asignaciones globales (aplican a todo depto)
+  //   deptPermissions   → por departamento, los permisos de la asignación en ese depto
   departments: Array<{ departmentId: DepartmentId; role: "admin" | "participant" | "requester" }>;
+  // Asignaciones de rol crudas (fuente de verdad) para gestionarlas en la UI.
+  roleAssignments: Array<{ roleName: string; departmentId: DepartmentId | null }>;
+  permissions: string[];
+  globalPermissions: string[];
+  deptPermissions: DeptPermissions[];
 };
 
-// The login / registration response also carries the resolved permission codes.
-export type AuthUser = ServerUser & { permissions: string[] };
+// Login / registro devuelven la misma forma (incluye los permisos resueltos).
+export type AuthUser = ServerUser;
 
 export type ServerTicketRating = {
   value: number;            // 1–5
@@ -201,12 +213,14 @@ export type PermissionsByModule = Record<string, PermissionEntry[]>;
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Una asignación de rol con ámbito: departmentId = null ⇒ GLOBAL.
+export type RoleAssignmentInput = { roleName: string; departmentId: DepartmentId | null };
+
 export type CreateUserBody = {
   name: string;
   email: string;
   password: string;
-  role: "master" | "admin" | "participant" | "requester";
-  departments: Array<{ departmentId: DepartmentId; role: "admin" | "participant" | "requester" }>;
+  assignments: RoleAssignmentInput[];
   originDepartmentId?: string | null;
 };
 
@@ -214,9 +228,8 @@ export type UpdateUserBody = {
   name?: string;
   email?: string;
   password?: string;
-  role?: "master" | "admin" | "participant" | "requester";
+  assignments?: RoleAssignmentInput[];
   status?: "active" | "inactive" | "pending";
-  departments?: Array<{ departmentId: DepartmentId; role: "admin" | "participant" | "requester" }>;
   originDepartmentId?: string | null;
 };
 
@@ -231,6 +244,7 @@ export type ServerComment = {
   ticketId: string;
   userId: string;
   body: string;
+  images: string[]; // data-URLs base64 de imágenes adjuntas (vacío si no hay)
   editedAt: string | null;
   createdAt: string;
   user: { id: string; name: string };
@@ -273,7 +287,7 @@ export const api = {
     }),
 
   // Self-service registration (2 steps)
-  registerStart: (body: { name: string; email: string; password: string }) =>
+  registerStart: (body: { name: string; email: string; password: string; originDepartmentId?: string | null }) =>
     request<{ ok: true; emailSent: boolean }>("/auth/register/start", "", {
       method: "POST",
       body: JSON.stringify(body),
@@ -281,6 +295,19 @@ export const api = {
 
   registerVerify: (body: { email: string; code: string }) =>
     request<AuthUser>("/auth/register/verify", "", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  // Password reset — ¿olvidaste tu contraseña? (2 steps)
+  resetStart: (body: { email: string }) =>
+    request<{ ok: true; emailSent: boolean }>("/auth/reset/start", "", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  resetVerify: (body: { email: string; code: string; password: string }) =>
+    request<{ ok: true }>("/auth/reset/verify", "", {
       method: "POST",
       body: JSON.stringify(body),
     }),
@@ -352,10 +379,10 @@ export const api = {
   listComments: (userId: string, ticketId: string) =>
     request<ServerComment[]>(`/tickets/${ticketId}/comments`, userId),
 
-  createComment: (userId: string, ticketId: string, body: string) =>
+  createComment: (userId: string, ticketId: string, body: string, images: string[] = []) =>
     request<ServerComment>(`/tickets/${ticketId}/comments`, userId, {
       method: "POST",
-      body: JSON.stringify({ body }),
+      body: JSON.stringify({ body, images }),
     }),
 
   updateComment: (userId: string, ticketId: string, commentId: string, body: string) =>

@@ -9,8 +9,14 @@ export interface AppUser {
   name: string;
   email?: string;
   role: UserRole;
+  // Solo para mostrar (id + rol por-depto). La autorización usa los permisos resueltos.
   departments: Array<{ departmentId: DepartmentId; role: "admin" | "participant" | "requester" }>;
-  permissions: string[];
+  // Asignaciones de rol crudas (fuente de verdad), para gestionarlas en Config.
+  roleAssignments: Array<{ roleName: string; departmentId: DepartmentId | null }>;
+  // Permisos efectivos resueltos (scoped RBAC), espejo del backend.
+  permissions: string[];        // app-level efectivo (alcance estricto aplicado)
+  globalPermissions: string[];  // permisos de asignaciones globales (aplican a todo depto)
+  deptPermissions: Array<{ departmentId: DepartmentId; permissions: string[] }>; // por depto
   status: "active" | "inactive" | "pending";
   lastAccess: string | null;
   originDepartmentId?: string | null;

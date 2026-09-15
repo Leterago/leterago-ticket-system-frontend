@@ -4,6 +4,7 @@ import "./App.css";
 import RootTemplate from "./components/Layouts/RootTemplate";
 import LoginPage from "./components/Pages/LoginPage";
 import RegisterPage from "./components/Pages/RegisterPage";
+import ForgotPasswordPage from "./components/Pages/ForgotPasswordPage";
 import CreateTicketPage from "./components/Pages/CreateTicketPage";
 import NewTicketFormPage from "./components/Pages/NewTicketFormPage";
 import Tickets from "./components/Pages/Tickets";
@@ -13,10 +14,13 @@ import ConfigPage from "./components/Pages/ConfigPage";
 import { useAppDispatch, useAppSelector } from "./store/hooks";
 import { fetchUsers } from "./store/usersSlice";
 import { fetchTickets } from "./store/ticketsSlice";
+import { setCurrentUser } from "./store/authSlice";
+import { canViewDashboard } from "./store/permissions";
 
 function AppRoutes() {
   const currentUser = useAppSelector((s) => s.auth.currentUser);
-  const isRestricted = currentUser?.role === "requester" || currentUser?.role === "participant";
+  // El dashboard se gatea por permiso (dashboard.view), no por nombre de rol.
+  const isRestricted = currentUser ? !canViewDashboard(currentUser) : true;
 
   const router = createBrowserRouter([
     {
@@ -26,6 +30,10 @@ function AppRoutes() {
     {
       path: "/register",
       element: currentUser ? <Navigate to="/" replace /> : <RegisterPage />,
+    },
+    {
+      path: "/forgot-password",
+      element: currentUser ? <Navigate to="/" replace /> : <ForgotPasswordPage />,
     },
     {
       path: "/",
@@ -79,6 +87,7 @@ function AppBootstrap() {
   const currentUser  = useAppSelector((s) => s.auth.currentUser);
   const usersStatus  = useAppSelector((s) => s.users.status);
   const usersError   = useAppSelector((s) => s.users.error);
+  const users        = useAppSelector((s) => s.users.list);
 
   useEffect(() => {
     if (currentUser?.id) {
@@ -89,6 +98,20 @@ function AppBootstrap() {
   useEffect(() => {
     if (currentUser) dispatch(fetchTickets());
   }, [dispatch, currentUser?.id]);
+
+  // Auto-reparación: tras cargar la lista (autoritativa), refresca los permisos
+  // resueltos del usuario logueado. Sana sesiones guardadas con forma vieja tras un
+  // despliegue, sin obligar a re-login.
+  useEffect(() => {
+    if (!currentUser || usersStatus !== "ready") return;
+    const fresh = users.find((u) => u.id === currentUser.id);
+    if (!fresh) return;
+    const stale =
+      JSON.stringify(fresh.permissions) !== JSON.stringify(currentUser.permissions) ||
+      JSON.stringify(fresh.globalPermissions) !== JSON.stringify(currentUser.globalPermissions) ||
+      JSON.stringify(fresh.deptPermissions) !== JSON.stringify(currentUser.deptPermissions);
+    if (stale) dispatch(setCurrentUser({ ...currentUser, ...fresh }));
+  }, [dispatch, usersStatus, users, currentUser]);
 
   // No session → go straight to login routes
   if (!currentUser) return <AppRoutes />;

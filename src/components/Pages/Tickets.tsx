@@ -4,9 +4,8 @@ import TicketsTable from "../Templates/TicketsTable";
 import PageHeader from "../Molecules/PageHeader";
 import { useNavigate } from "react-router-dom";
 import { useAppSelector, useCurrentUser } from "../../store/hooks";
-import { canViewExtended } from "../../store/permissions";
-import { DEPARTMENTS, getCategoriesForDepartments } from "../../config/catalog";
-import type { DepartmentId } from "../../types/types";
+import { canViewExtended, canSeeAllTickets, viewableDepartmentIds } from "../../store/permissions";
+import { getCategoriesForDepartments } from "../../config/catalog";
 
 const Tickets = () => {
   const navigate = useNavigate();
@@ -24,25 +23,19 @@ const Tickets = () => {
     localStorage.setItem("mesa_tickets_view", viewMode);
   }, [viewMode]);
 
-  const workingDeptIds: DepartmentId[] = currentUser.role === "master"
-    ? (Object.keys(DEPARTMENTS) as DepartmentId[])
-    : currentUser.departments
-        .filter((d) => d.role !== "requester")
-        .map((d) => d.departmentId as DepartmentId);
-
-  const visible =
-    currentUser.role === "master"
-      ? tickets
-      : currentUser.role === "requester"
-        ? tickets.filter((t) => t.createdById === currentUser.id)
-        : tickets.filter((t) => {
-            const cats = getCategoriesForDepartments(workingDeptIds);
-            return (
-              cats.includes(t.categoryId) ||
-              t.createdById === currentUser.id ||
-              t.assignedToId === currentUser.id
-            );
-          });
+  // Visibilidad por permiso (espejo del backend): ve todo quien tiene view_all;
+  // si no, ve los departamentos donde su rol concede view_department, más lo propio.
+  const visible = canSeeAllTickets(currentUser)
+    ? tickets
+    : (() => {
+        const cats = getCategoriesForDepartments(viewableDepartmentIds(currentUser));
+        return tickets.filter(
+          (t) =>
+            cats.includes(t.categoryId) ||
+            t.createdById === currentUser.id ||
+            t.assignedToId === currentUser.id,
+        );
+      })();
 
   const handleExport = () => {
     const headers = ["ID", "Título", "Departamento", "Categoría", "Prioridad", "Estado", "Asignado a", "Creado el"];
@@ -60,7 +53,7 @@ const Tickets = () => {
   };
 
   return (
-    <div className="flex flex-col w-full min-h-screen p-6 gap-5 max-w-screen-2xl mx-auto">
+    <div className="flex flex-col w-full min-h-screen p-6 gap-5 max-w-[1800px] mx-auto">
       <div className="flex justify-between items-start gap-4 flex-wrap">
         <PageHeader
           title="Tickets"

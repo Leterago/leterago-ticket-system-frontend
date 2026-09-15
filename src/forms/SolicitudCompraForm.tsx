@@ -1,6 +1,8 @@
 import { useRef, useState, useEffect } from "react";
-import { ImagePlus, X, AlertCircle } from "lucide-react";
+import { ImagePlus, X, AlertCircle, ZoomIn } from "lucide-react";
 import type { CategoryFormProps } from "./types";
+import ImageLightbox from "../components/Organisms/ImageLightbox";
+import { compressImage, IMAGE_MAX_BYTES } from "../lib/compressImage";
 
 export type SolicitudCompraPayload = {
   imagenes: string[];
@@ -9,34 +11,6 @@ export type SolicitudCompraPayload = {
 export const defaultValue: SolicitudCompraPayload = {
   imagenes: [],
 };
-
-const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
-const TARGET_WIDTH = 1280;
-const QUALITY = 0.75;
-
-function compressImage(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const src = e.target?.result as string;
-      const img = new Image();
-      img.onload = () => {
-        const scale = Math.min(1, TARGET_WIDTH / img.width);
-        const w = Math.round(img.width * scale);
-        const h = Math.round(img.height * scale);
-        const canvas = document.createElement("canvas");
-        canvas.width = w;
-        canvas.height = h;
-        canvas.getContext("2d")!.drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL("image/jpeg", QUALITY));
-      };
-      img.onerror = reject;
-      img.src = src;
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
 
 export default function SolicitudCompraForm({
   value,
@@ -47,6 +21,8 @@ export default function SolicitudCompraForm({
   const [errors, setErrors] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [dragging, setDragging] = useState(false);
+  // Índice de la imagen abierta en el visor (null = cerrado).
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
 
   useEffect(() => {
     if (readOnly) return;
@@ -68,7 +44,7 @@ export default function SolicitudCompraForm({
 
   const handleFiles = async (files: FileList | null) => {
     if (!files || readOnly) return;
-    const oversized = Array.from(files).filter((f) => f.size > MAX_BYTES);
+    const oversized = Array.from(files).filter((f) => f.size > IMAGE_MAX_BYTES);
     if (oversized.length) {
       setErrors(oversized.map((f) => `"${f.name}" supera los 5 MB.`));
       return;
@@ -76,7 +52,7 @@ export default function SolicitudCompraForm({
     setErrors([]);
     setLoading(true);
     try {
-      const compressed = await Promise.all(Array.from(files).map(compressImage));
+      const compressed = await Promise.all(Array.from(files).map((f) => compressImage(f)));
       onChange({ ...value, imagenes: [...value.imagenes, ...compressed] });
     } finally {
       setLoading(false);
@@ -140,11 +116,20 @@ export default function SolicitudCompraForm({
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {value.imagenes.map((src, idx) => (
             <div key={idx} className="relative group rounded-lg overflow-hidden border border-gray-200 aspect-video bg-gray-50">
-              <img src={src} alt={`imagen-${idx + 1}`} className="w-full h-full object-cover" />
+              <img
+                src={src}
+                alt={`imagen-${idx + 1}`}
+                className="w-full h-full object-cover cursor-zoom-in"
+                onClick={() => setViewerIndex(idx)}
+              />
+              {/* Indicador de "ampliar" al pasar el cursor (no intercepta clics). */}
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/20 transition-colors">
+                <ZoomIn size={20} className="text-white opacity-0 group-hover:opacity-90 transition-opacity drop-shadow" />
+              </div>
               {!readOnly && (
                 <button
                   type="button"
-                  onClick={() => remove(idx)}
+                  onClick={(e) => { e.stopPropagation(); remove(idx); }}
                   className="absolute top-1.5 right-1.5 bg-black/50 hover:bg-black/70 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
                 >
                   <X size={12} />
@@ -157,6 +142,15 @@ export default function SolicitudCompraForm({
         readOnly && (
           <p className="text-sm text-gray-400 italic">Sin imágenes adjuntas.</p>
         )
+      )}
+
+      {viewerIndex !== null && (
+        <ImageLightbox
+          images={value.imagenes}
+          index={viewerIndex}
+          onIndexChange={setViewerIndex}
+          onClose={() => setViewerIndex(null)}
+        />
       )}
     </div>
   );

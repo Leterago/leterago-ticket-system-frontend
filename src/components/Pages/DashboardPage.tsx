@@ -1,12 +1,13 @@
 import { BarChart3, CheckCircle, AlertTriangle, Clock, Zap, CalendarDays, ChevronDown, Check, X, Star } from "lucide-react";
 import PageHeader from "../Molecules/PageHeader";
 import { useAppSelector, useCurrentUser } from "../../store/hooks";
+import { canSeeAllTickets, viewableDepartmentIds } from "../../store/permissions";
 import { useMemo, useState, useRef, useEffect } from "react";
 import { api, type ResolutionStats } from "../../api/client";
 import type { Ticket, DepartmentId } from "../../types/types";
-import { DEPARTMENTS, getCategoriesForDepartments } from "../../config/catalog";
+import { DEPARTMENTS, DEPARTMENT_IDS_WITH_CATEGORIES, getCategoriesForDepartments } from "../../config/catalog";
 
-const ALL_DEPT_IDS: DepartmentId[] = ["compras", "servicios-generales", "mantenimiento-seguridad"];
+const ALL_DEPT_IDS: DepartmentId[] = DEPARTMENT_IDS_WITH_CATEGORIES;
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
 function toYMD(d: Date): string {
@@ -337,10 +338,10 @@ export default function DashboardPage() {
   const { tickets } = useAppSelector((s) => s.tickets);
   const currentUser = useCurrentUser();
 
-  // Department filter — only shown if user has 2+ departments
-  const userDeptIds: DepartmentId[] = currentUser.role === "master"
+  // Department filter — departamentos cuyos tickets puede ver (por permiso, no por rol).
+  const userDeptIds: DepartmentId[] = canSeeAllTickets(currentUser)
     ? ALL_DEPT_IDS
-    : currentUser.departments.map((d) => d.departmentId as DepartmentId);
+    : viewableDepartmentIds(currentUser);
 
   const [selectedDepts, setSelectedDepts] = useState<DepartmentId[]>(userDeptIds);
   const showDeptFilter = userDeptIds.length > 1;
