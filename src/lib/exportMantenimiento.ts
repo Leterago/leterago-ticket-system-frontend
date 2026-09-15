@@ -28,8 +28,6 @@ const FONT  = "Verdana";
 const BLACK = "000000";
 const WHITE = "FFFFFF";
 const DARK  = "1F2937";
-// Verdana no trae ☒/☐: sin una fuente que los tenga, Word los sustituye mal.
-const SYMBOL_FONT = "Segoe UI Symbol";
 
 // A4 portrait with the original form's margins (twips). Los márgenes laterales se
 // redujeron a 850 (1.5 cm) para aprovechar el ancho de la hoja; todo lo demás deriva de CW.
@@ -60,8 +58,10 @@ const H_TITLE = CW - H_LOGO - H_INFO;
 const LOGO_W = 150;
 const LOGO_H = 58;
 
-const PRIORITY_NIVEL: Record<string, string> = {
-  urgent: "Urgente", high: "Importante", medium: "Normal", low: "Normal",
+// Las mismas etiquetas que muestra la app: el Word imprime la prioridad tal cual,
+// sin traducirla a los tres niveles del formulario en blanco.
+const PRIORITY_LABEL: Record<string, string> = {
+  urgent: "Urgente", high: "Alta", medium: "Media", low: "Baja",
 };
 
 const MESES = [
@@ -271,20 +271,7 @@ export async function exportMantenimientoDocx(
     logoData = null;
   }
 
-  const nivel = PRIORITY_NIVEL[ticket.priority] ?? "Normal";
-
-  /** Casilla del nivel de prioridad: el glifo va con fuente propia o Word no lo dibuja. */
-  const nivelLinea = (opt: string) => {
-    const marcada = nivel === opt;
-    return p(
-      [
-        new TextRun({ text: marcada ? "☒" : "☐", font: SYMBOL_FONT, size: 20, color: DARK }),
-        run(` ${opt}`, { size: 18, bold: marcada }),
-      ],
-      AlignmentType.LEFT,
-      { before: 10, after: 10 },
-    );
-  };
+  const nivel = PRIORITY_LABEL[ticket.priority] ?? "";
 
   const ubicacion = payload.ubicacion === "otro"
     ? (payload.otraUbicacion || "")
@@ -304,9 +291,7 @@ export async function exportMantenimientoDocx(
     children: [
       p([run("NIVEL DE", { bold: true, size: 16 })], AlignmentType.CENTER, { before: 0, after: 0 }),
       p([run("PRIORIDAD", { bold: true, size: 16 })], AlignmentType.CENTER, { before: 0, after: 60 }),
-      nivelLinea("Urgente"),
-      nivelLinea("Importante"),
-      nivelLinea("Normal"),
+      p([run(nivel, { bold: true, size: 20 })], AlignmentType.CENTER, { before: 60, after: 20 }),
     ],
   });
 

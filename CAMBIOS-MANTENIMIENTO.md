@@ -4,7 +4,7 @@
 > Este documento queda como referencia de qué se cambió y por qué; **no hay que volver a
 > aplicarlo**.
 
-> **Qué es este documento:** la especificación completa de 7 cambios sobre la categoría
+> **Qué es este documento:** la especificación completa de 8 cambios sobre la categoría
 > `solicitud-mantenimiento` (departamento `mantenimiento-seguridad`) y sobre el Word
 > FOR-077 que genera. Está escrito para aplicarse tal cual: cada cambio indica archivo,
 > código actual y código de reemplazo.
@@ -21,7 +21,7 @@
 
 | # | Cambio | Dónde se ve |
 |---|--------|-------------|
-| 1 | El **NIVEL DE PRIORIDAD** del ticket debe quedar marcado en el Word | Word FOR-077 |
+| 1 | **NIVEL DE PRIORIDAD**: se imprime la prioridad de la app en negrita (sin casillas) | Word FOR-077 |
 | 2 | **Recibe conforme** se llena con el nombre del solicitante | Word FOR-077 |
 | 3 | **Departamento** se llena con el departamento de origen del solicitante | Word FOR-077 |
 | 4 | **Realizado por** pasa a ser dropdown con sugerencias + texto libre | Formulario app (Registro de Ejecución) |
@@ -48,71 +48,30 @@
 
 ---
 
-## Cambio 1 — NIVEL DE PRIORIDAD marcado en el Word
+## Cambio 1 — NIVEL DE PRIORIDAD en el Word
 
 **Archivo:** `src/lib/exportMantenimiento.ts`
 
-**Situación actual:** el código ya deriva el nivel de `ticket.priority` (`PRIORITY_NIVEL`,
-línea ~60) y arma las casillas con el helper `ck()`, que concatena `☒`/`☐` en un `TextRun`
-con fuente **Verdana**. Verdana **no contiene esos glifos**, así que Word los sustituye o
-los dibuja como un cuadro vacío: por eso la marca no se ve en el documento generado.
-
-**Arreglo:** dibujar la marca en un `TextRun` propio con una fuente que sí tenga el glifo
-(`Segoe UI Symbol`) y además poner en **negrita** la opción seleccionada, para que el nivel
-quede inequívoco aunque la fuente falle en otra máquina.
-
-1. Debajo de la constante `DARK` agregar:
+El formulario oficial traía tres casillas (Urgente / Importante / Normal) y el código
+traducía a esos tres niveles las cuatro prioridades de la app, así que un ticket en **Alta**
+salía marcado como **Importante**. Se eliminaron las casillas: la celda "NIVEL DE PRIORIDAD"
+imprime la prioridad del ticket **tal cual la muestra la app**, en negrita y centrada.
 
 ```ts
-const SYMBOL_FONT = "Segoe UI Symbol"; // Verdana no trae ☒/☐ — Word los sustituye mal
-```
-
-2. Reemplazar el helper `ck` dentro de `exportMantenimientoDocx` (línea ~265):
-
-```ts
-// ANTES
-const ck = (opt: string) => `${nivel === opt ? "☒" : "☐"} ${opt}`;
-
-// DESPUÉS
-/** Casilla del nivel de prioridad: el glifo va con fuente propia o Word no lo dibuja. */
-const nivelLinea = (opt: string) => {
-  const marcada = nivel === opt;
-  return p(
-    [
-      new TextRun({ text: marcada ? "☒" : "☐", font: SYMBOL_FONT, size: 20, color: DARK }),
-      run(` ${opt}`, { size: 18, bold: marcada }),
-    ],
-    AlignmentType.LEFT,
-    { before: 10, after: 10 },
-  );
+// Las mismas etiquetas que la app; sin traducción a los niveles del formulario en blanco.
+const PRIORITY_LABEL: Record<string, string> = {
+  urgent: "Urgente", high: "Alta", medium: "Media", low: "Baja",
 };
+
+// ...dentro de exportMantenimientoDocx:
+const nivel = PRIORITY_LABEL[ticket.priority] ?? "";
+
+// ...en nivelCell, en lugar de las tres casillas:
+p([run(nivel, { bold: true, size: 20 })], AlignmentType.CENTER, { before: 60, after: 20 }),
 ```
 
-3. En `nivelCell` (línea ~285) reemplazar las tres líneas de casillas:
-
-```ts
-// ANTES
-p([run(ck("Urgente"),    { size: 18 })], AlignmentType.LEFT, { before: 10, after: 10 }),
-p([run(ck("Importante"), { size: 18 })], AlignmentType.LEFT, { before: 10, after: 10 }),
-p([run(ck("Normal"),     { size: 18 })], AlignmentType.LEFT, { before: 10, after: 10 }),
-
-// DESPUÉS
-nivelLinea("Urgente"),
-nivelLinea("Importante"),
-nivelLinea("Normal"),
-```
-
-**Mapeo de prioridades** (se mantiene el existente — la app tiene 4 niveles y el formulario
-oficial sólo 3):
-
-| Prioridad del ticket | Casilla marcada |
-|---|---|
-| `urgent` (Urgente) | Urgente |
-| `high` (Alta) | Importante |
-| `medium` (Media) | Normal |
-| `low` (Baja) | Normal |
-
-> Si se prefiere `low` → sin marcar, cambiar `PRIORITY_NIVEL` en el mismo archivo.
+> Quedaron fuera `PRIORITY_NIVEL`, el helper de casillas (`ck` / `nivelLinea`) y la constante
+> `SYMBOL_FONT`: al no dibujar `☒`/`☐` ya no hace falta una fuente de símbolos.
 
 ---
 
@@ -688,7 +647,7 @@ children: [
 
 ## Supuestos tomados (revisar al probar)
 
-1. **Prioridad:** `low` y `medium` caen ambas en "Normal" (el FOR-077 sólo tiene 3 niveles).
+1. **Prioridad:** se imprime la etiqueta literal de la app (Urgente · Alta · Media · Baja); ya no se traduce a los tres niveles del FOR-077.
 2. **Departamento:** es el `originDepartmentId` del **creador** del ticket, no el
    departamento destino (`ticket.departmentId`, que siempre sería Mantenimiento y Seguridad).
    Si el usuario se registró con origen "Otro" (`null`), la casilla sale vacía.
@@ -722,7 +681,7 @@ Pruebas funcionales (con `INICIAR.bat`):
    los 6 técnicos al hacer clic y además acepta un nombre escrito a mano.
 4. **Descargar Word** y comprobar en el .docx:
    - "No. de Orden: TCK-###" con el id real del ticket.
-   - ☒ **Importante** marcado (y sólo ese), en negrita.
+   - "NIVEL DE PRIORIDAD" con **Alta** en negrita (la misma palabra que muestra la app).
    - "Departamento:" con el departamento de origen de quien creó el ticket.
    - "Recibe conforme:" con el nombre del solicitante.
    - La esquina superior derecha sigue **vacía** (el Tipo de Orden no se imprime).

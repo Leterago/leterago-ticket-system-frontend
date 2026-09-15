@@ -222,7 +222,7 @@ El selector **Estado** de la página de detalle (`TicketDetailPage`) **deshabili
 | Fecha / Hora | `ticket.createdAt` |
 | Solicitado por | `ticket.createdBy` |
 | Departamento | Departamento **de origen del solicitante** (`originDepartmentId` del creador) |
-| Nivel de prioridad | `ticket.priority` (urgent→Urgente · high→Importante · medium/low→Normal) |
+| Nivel de prioridad | `ticket.priority` con la **misma etiqueta que la app** (Urgente · Alta · Media · Baja), en negrita |
 | Área o Equipo · Código · Ubicación | `payload.area` · `payload.codigo` · `payload.ubicacion` |
 | Descripción | `ticket.description` |
 | Realizado por (filas) | `payload.registros[]` |
@@ -234,7 +234,7 @@ El selector **Estado** de la página de detalle (`TicketDetailPage`) **deshabili
 Detalles que conviene no romper:
 
 - **El departamento no viaja en el ticket.** `exportMantenimientoDocx(ticket, payload, opts)` recibe la etiqueta ya resuelta en `opts.departamento`; quien la resuelve es `TicketDetailPage`, buscando al creador en `state.users.list` y pasándola por `departmentLabel(...)`.
-- **Las casillas del nivel de prioridad** se dibujan con un `TextRun` propio en fuente `Segoe UI Symbol`: Verdana no trae los glifos `☒`/`☐` y Word los sustituye mal. La opción marcada va además en **negrita**.
+- **No hay casillas de prioridad.** La celda "NIVEL DE PRIORIDAD" imprime directamente la prioridad del ticket en negrita (`PRIORITY_LABEL`), con las mismas cuatro etiquetas de la app. El formulario oficial traía tres casillas (Urgente/Importante/Normal) y traducir "Alta" → "Importante" confundía; se eliminó el mapeo.
 - **Márgenes laterales de 850 twips** (1.5 cm, antes 1699). Todo el ancho de tablas se deriva de `CW`, así que cambiar el margen basta; sólo `H_LOGO`/`H_INFO` son fijos.
 - **Sin textos guía.** El documento generado no lleva las indicaciones en cursiva gris del formulario en blanco ("(Ampliar sobre el trabajo realizado…)", "(Firma de quien recibe)"): sólo datos reales o casillas vacías.
 - **`payload.tipoOrden` no se imprime** — es dato interno de la app; el Word conserva los campos del formulario oficial.
