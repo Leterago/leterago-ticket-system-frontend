@@ -24,12 +24,13 @@
 | 5 | Formulario Word **más ancho** (menos margen lateral) | Word FOR-077 |
 | 6 | **No. de Orden** = ID del ticket (ej. `TCK-329`) | Word FOR-077 + formulario app |
 | 7 | Agregar **imágenes** a esta categoría + nuevo dropdown **Tipo de Orden** (Mejora / Proyectos / OT Terceros) | Formulario app (no sale en el Word) |
+| 8 | Quitar los **textos guía** en cursiva gris del Word (el de Observaciones y similares) | Word FOR-077 |
 
 ## Archivos afectados
 
 **Repo `leterago-ticket-system-frontend`:**
 
-- `src/lib/exportMantenimiento.ts` — cambios 1, 2, 3, 5, 6
+- `src/lib/exportMantenimiento.ts` — cambios 1, 2, 3, 5, 6, 8
 - `src/forms/SolicitudMantenimientoForm.tsx` — cambios 4, 6, 7
 - `src/components/Pages/TicketDetailPage.tsx` — cambio 3 (resolver el departamento y pasarlo al export)
 - `src/components/Organisms/ImageUploader.tsx` — **archivo nuevo** (cambio 7)
@@ -647,6 +648,40 @@ el detalle del ticket.
 
 ---
 
+## Cambio 8 — Quitar los textos guía del Word
+
+**Archivo:** `src/lib/exportMantenimiento.ts`
+
+El documento generado no debe arrastrar los textos de ayuda en cursiva gris que trae el
+formulario en blanco. En el archivo hay **dos y sólo dos** (se localizan con
+`grep -n "italic" src/lib/exportMantenimiento.ts`):
+
+1. **OBSERVACIONES** (línea ~410) — eliminar el párrafo guía completo:
+
+```ts
+// ANTES
+children: [
+  p([run("(Ampliar sobre el trabajo realizado y su estatus)", { italic: true, color: "808080" })], undefined, { before: 0, after: 60 }),
+  p([run(payload.observaciones || "")], undefined, { before: 0, after: 0 }),
+],
+
+// DESPUÉS
+children: [
+  p([run(payload.observaciones || "")], undefined, { before: 0, after: 0 }),
+],
+```
+
+2. **Recibe conforme** — "(Firma de quien recibe)" ya desaparece con el **Cambio 2**, que lo
+   reemplaza por el nombre del solicitante. No hay nada extra que hacer aquí.
+
+> Tras esto ningún `run()` usa `italic`; la opción se queda igual en la firma del helper
+> (es parte de su API, no genera error de lint).
+>
+> **Regla general para lo que venga:** el Word sólo lleva datos reales o casillas en blanco,
+> nunca instrucciones para quien llena el formulario.
+
+---
+
 ## Supuestos tomados (revisar al probar)
 
 1. **Prioridad:** `low` y `medium` caen ambas en "Normal" (el FOR-077 sólo tiene 3 niveles).
@@ -687,6 +722,8 @@ Pruebas funcionales (con `INICIAR.bat`):
    - "Departamento:" con el departamento de origen de quien creó el ticket.
    - "Recibe conforme:" con el nombre del solicitante.
    - La esquina superior derecha sigue **vacía** (el Tipo de Orden no se imprime).
+   - **Observaciones** muestra sólo el texto capturado, sin "(Ampliar sobre el trabajo
+     realizado y su estatus)"; no queda ningún texto guía en cursiva gris en todo el documento.
    - Las tablas llegan más cerca del borde de la hoja (margen ≈ 1.5 cm).
 5. Abrir un ticket de mantenimiento **anterior** a estos cambios: debe seguir cargando y
    exportando sin error (los campos nuevos entran vacíos por los `.default()` de Zod).
@@ -700,4 +737,5 @@ Pruebas funcionales (con `INICIAR.bat`):
 - `leterago-ticket-system-frontend/README.md` — exportación FOR-077 (campos que ahora se
   llenan y de dónde salen), el nuevo `ImageUploader` compartido y el dropdown de técnicos.
 - `CLAUDE.md` (sección *Maintenance Export*) — mencionar que el Word ya no usa
-  `payload.noOrden` y que el margen lateral se redujo a 850 twips.
+  `payload.noOrden`, que el margen lateral se redujo a 850 twips y que se quitaron los
+  textos guía del formulario en blanco.
