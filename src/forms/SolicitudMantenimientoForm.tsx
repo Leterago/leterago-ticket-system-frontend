@@ -1,5 +1,6 @@
 import { Plus } from "lucide-react";
 import type { CategoryFormProps } from "./types";
+import ImageUploader from "../components/Organisms/ImageUploader";
 
 export type UbicacionMantenimiento =
   | ""
@@ -27,13 +28,24 @@ export type RegistroTrabajo = {
   horaTermino: string;
 };
 
+export type TipoOrdenMantenimiento = "" | "Mejora" | "Proyectos" | "OT Terceros";
+
+export const TIPOS_ORDEN: Exclude<TipoOrdenMantenimiento, "">[] = [
+  "Mejora",
+  "Proyectos",
+  "OT Terceros",
+];
+
 export type SolicitudMantenimientoPayload = {
   area: string;
   ubicacion: UbicacionMantenimiento;
   otraUbicacion: string;
   codigo: string;
+  tipoOrden: TipoOrdenMantenimiento;
+  /** @deprecated El Word imprime `ticket.id`. Se conserva por los tickets ya guardados. */
   noOrden: string;
   registros: RegistroTrabajo[];
+  imagenes: string[];
   observaciones: string;
 };
 
@@ -42,11 +54,13 @@ export const defaultValue: SolicitudMantenimientoPayload = {
   ubicacion: "",
   otraUbicacion: "",
   codigo: "",
+  tipoOrden: "",
   noOrden: "",
   registros: [
     { fecha: "", realizadoPor: "", horaInicio: "", horaTermino: "" },
     { fecha: "", realizadoPor: "", horaInicio: "", horaTermino: "" },
   ],
+  imagenes: [],
   observaciones: "",
 };
 
@@ -72,6 +86,18 @@ const UBICACIONES: UbicacionMantenimiento[] = [
 ];
 
 const EMPTY_ROW: RegistroTrabajo = { fecha: "", realizadoPor: "", horaInicio: "", horaTermino: "" };
+
+/** Sugerencias del campo "Realizado por" — el campo admite cualquier otro nombre. */
+export const TECNICOS_MANTENIMIENTO = [
+  "Gerson De La Rosa",
+  "Franklin De Los Angeles Rodriguez",
+  "Miguel Sano",
+  "Tomas Merejildo Luciano",
+  "Eury Cesar Sanchez Silverio",
+  "Dagoberto De La Cruz Rodríguez",
+];
+
+const TECNICOS_LIST_ID = "tecnicos-mantenimiento";
 
 export default function SolicitudMantenimientoForm({
   value,
@@ -170,24 +196,40 @@ export default function SolicitudMantenimientoForm({
               className={inputBase}
             />
           </div>
+
+          <div>
+            <label className="text-xs text-gray-400 block mb-1">Tipo de Orden</label>
+            <select
+              disabled={readOnly}
+              value={value.tipoOrden ?? ""}
+              onChange={(e) => set("tipoOrden", e.target.value as TipoOrdenMantenimiento)}
+              className={inputBase}
+            >
+              <option value="">Seleccione tipo</option>
+              {TIPOS_ORDEN.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
+
+      <ImageUploader
+        images={value.imagenes ?? []}
+        onChange={(imagenes) => set("imagenes", imagenes)}
+        readOnly={readOnly}
+      />
 
       {showExecSection && (
         <div className="flex flex-col gap-4 border border-gray-200 p-6 text-gray-700 rounded-xl bg-white">
           <h2 className="text-sm font-semibold">Registro de Ejecución</h2>
 
-          <div className="md:max-w-xs">
-            <label className="text-xs text-gray-400 block mb-1">No. de Orden</label>
-            <input
-              type="text"
-              disabled={readOnly}
-              value={value.noOrden ?? ""}
-              onChange={(e) => set("noOrden", e.target.value)}
-              placeholder="Número de orden de trabajo"
-              className={inputBase}
-            />
-          </div>
+          {/* El No. de Orden del FOR-077 es el id del ticket: no se captura a mano. */}
+          <datalist id={TECNICOS_LIST_ID}>
+            {TECNICOS_MANTENIMIENTO.map((n) => (
+              <option key={n} value={n} />
+            ))}
+          </datalist>
 
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -214,10 +256,11 @@ export default function SolicitudMantenimientoForm({
                     <td className="py-1 pr-3">
                       <input
                         type="text"
+                        list={TECNICOS_LIST_ID}
                         disabled={readOnly}
                         value={row.realizadoPor}
                         onChange={(e) => setRow(i, "realizadoPor", e.target.value)}
-                        placeholder="Nombre..."
+                        placeholder="Seleccione o escriba un nombre..."
                         className={inputBase}
                       />
                     </td>

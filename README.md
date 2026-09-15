@@ -201,22 +201,43 @@ El selector **Estado** de la página de detalle (`TicketDetailPage`) **deshabili
 
 ---
 
+## Formulario de mantenimiento
+
+`src/forms/SolicitudMantenimientoForm.tsx` tiene dos bloques: la tarjeta **"Detalles de Mantenimiento"** (visible al crear el ticket) y el **"Registro de Ejecución"**, que sólo aparece con `showExecSection` (página de detalle).
+
+- **Tipo de Orden** — dropdown opcional (`Mejora` · `Proyectos` · `OT Terceros`, `TIPOS_ORDEN`) guardado en `payload.tipoOrden`. Es dato interno: **no** sale en el Word.
+- **Realizado por** — `input` con `list={TECNICOS_LIST_ID}` y un `<datalist>` con `TECNICOS_MANTENIMIENTO` (los 6 técnicos): sugiere al hacer clic pero **acepta cualquier nombre escrito**. El `datalist` se declara una sola vez para todas las filas.
+- **No. de Orden** ya no se captura: el Word imprime `ticket.id`. El campo `noOrden` sigue en el tipo y en el schema Zod sólo por los tickets ya guardados.
+- **Imágenes** — `ImageUploader` compartido (ver más abajo).
+
+---
+
 ## Exportación de mantenimiento (FOR-077)
 
 `src/lib/exportMantenimiento.ts` genera un `.docx` que reproduce **exactamente** el formato del formulario oficial **FOR-077 "Orden de Trabajo de Mantenimiento" V-4** (fuente Verdana, A4, encabezado con logo + título + bloque de documento, casillas "NIVEL DE PRIORIDAD", barras negras `DESCRIPCION` / `REALIZADO POR` / `OBSERVACIONES`, pie confidencial). Solo se rellenan los campos que captura la app:
 
 | Campo del formulario | Origen en la app |
 |----------------------|------------------|
-| No. de Orden | `payload.noOrden` (campo string, se llena al **editar** el ticket) |
+| No. de Orden | `ticket.id` (ej. `TCK-329`) — ya **no** se captura a mano |
 | Fecha / Hora | `ticket.createdAt` |
 | Solicitado por | `ticket.createdBy` |
+| Departamento | Departamento **de origen del solicitante** (`originDepartmentId` del creador) |
 | Nivel de prioridad | `ticket.priority` (urgent→Urgente · high→Importante · medium/low→Normal) |
 | Área o Equipo · Código · Ubicación | `payload.area` · `payload.codigo` · `payload.ubicacion` |
 | Descripción | `ticket.description` |
 | Realizado por (filas) | `payload.registros[]` |
 | Observaciones | `payload.observaciones` |
+| Recibe conforme | `ticket.createdBy` |
 
 > El logo va incrustado desde `src/assets/for077-logo.png`. Es una imagen **inline**, así que su celda en el encabezado debe ser más ancha que la imagen o Word la recorta.
+
+Detalles que conviene no romper:
+
+- **El departamento no viaja en el ticket.** `exportMantenimientoDocx(ticket, payload, opts)` recibe la etiqueta ya resuelta en `opts.departamento`; quien la resuelve es `TicketDetailPage`, buscando al creador en `state.users.list` y pasándola por `departmentLabel(...)`.
+- **Las casillas del nivel de prioridad** se dibujan con un `TextRun` propio en fuente `Segoe UI Symbol`: Verdana no trae los glifos `☒`/`☐` y Word los sustituye mal. La opción marcada va además en **negrita**.
+- **Márgenes laterales de 850 twips** (1.5 cm, antes 1699). Todo el ancho de tablas se deriva de `CW`, así que cambiar el margen basta; sólo `H_LOGO`/`H_INFO` son fijos.
+- **Sin textos guía.** El documento generado no lleva las indicaciones en cursiva gris del formulario en blanco ("(Ampliar sobre el trabajo realizado…)", "(Firma de quien recibe)"): sólo datos reales o casillas vacías.
+- **`payload.tipoOrden` no se imprime** — es dato interno de la app; el Word conserva los campos del formulario oficial.
 
 ---
 
@@ -226,7 +247,7 @@ La **compresión en el cliente** vive en `src/lib/compressImage.ts` (`compressIm
 
 Dos lugares adjuntan imágenes:
 
-- **Categoría `solicitud-compra`** — `SolicitudCompraForm` (`src/forms/SolicitudCompraForm.tsx`) las captura por selector, *drag-and-drop* o **pegado (Ctrl+V)**, las comprime con `compressImage` y las guarda en el payload como `imagenes: string[]`. En `readOnly` (detalle) muestra una rejilla de miniaturas (`object-cover`).
+- **Categorías `solicitud-compra` y `solicitud-mantenimiento`** — ambas usan el mismo Organism `ImageUploader` (`src/components/Organisms/ImageUploader.tsx`): captura por selector, *drag-and-drop* o **pegado (Ctrl+V)**, compresión con `compressImage` y guardado en el payload como `imagenes: string[]`. En `readOnly` (detalle) muestra una rejilla de miniaturas (`object-cover`). `SolicitudCompraForm` es sólo un envoltorio del componente; `SolicitudMantenimientoForm` lo renderiza debajo de su tarjeta de detalles.
 - **Comentarios de tickets** — `TicketComments` (`src/components/Organisms/TicketComments.tsx`) permite adjuntar imágenes a un comentario (botón 📎 o **pegar**), con previsualización y borrado antes de enviar (**máx. 6**, mismo tope que el backend). Se envían con `api.createComment(userId, ticketId, body, images)`; un comentario puede ser **solo texto, solo imágenes o ambos**. Cada `ServerComment` trae `images: string[]`, que la burbuja renderiza como miniaturas que abren el visor.
 
 El **visor** es `src/components/Organisms/ImageLightbox.tsx`, reutilizable con cualquier `string[]`:

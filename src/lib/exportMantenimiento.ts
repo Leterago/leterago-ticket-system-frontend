@@ -28,10 +28,13 @@ const FONT  = "Verdana";
 const BLACK = "000000";
 const WHITE = "FFFFFF";
 const DARK  = "1F2937";
+// Verdana no trae ☒/☐: sin una fuente que los tenga, Word los sustituye mal.
+const SYMBOL_FONT = "Segoe UI Symbol";
 
-// A4 portrait with the original form's margins (twips).
+// A4 portrait with the original form's margins (twips). Los márgenes laterales se
+// redujeron a 850 (1.5 cm) para aprovechar el ancho de la hoja; todo lo demás deriva de CW.
 const PAGE   = { width: 11906, height: 16838 };
-const MARGIN = { top: 1411, right: 1699, bottom: 1134, left: 1699, header: 706, footer: 706 };
+const MARGIN = { top: 1411, right: 850, bottom: 1134, left: 850, header: 706, footer: 706 };
 const CW     = PAGE.width - MARGIN.left - MARGIN.right; // 8508 — content width
 
 // Main info table columns (LEFT label/value · MID prioridad · RIGHT área), original proportions.
@@ -250,9 +253,16 @@ function buildFooter(): Footer {
 
 // ─── Main export ──────────────────────────────────────────────────────────────
 
+/** Datos que no viven en el ticket ni en el payload y los resuelve la página. */
+export type ExportMantenimientoOpts = {
+  /** Departamento de origen del solicitante (etiqueta legible). */
+  departamento?: string;
+};
+
 export async function exportMantenimientoDocx(
   ticket: Ticket,
   payload: SolicitudMantenimientoPayload,
+  opts: ExportMantenimientoOpts = {},
 ): Promise<void> {
   let logoData: ArrayBuffer | null = null;
   try {
@@ -262,7 +272,19 @@ export async function exportMantenimientoDocx(
   }
 
   const nivel = PRIORITY_NIVEL[ticket.priority] ?? "Normal";
-  const ck = (opt: string) => `${nivel === opt ? "☒" : "☐"} ${opt}`;
+
+  /** Casilla del nivel de prioridad: el glifo va con fuente propia o Word no lo dibuja. */
+  const nivelLinea = (opt: string) => {
+    const marcada = nivel === opt;
+    return p(
+      [
+        new TextRun({ text: marcada ? "☒" : "☐", font: SYMBOL_FONT, size: 20, color: DARK }),
+        run(` ${opt}`, { size: 18, bold: marcada }),
+      ],
+      AlignmentType.LEFT,
+      { before: 10, after: 10 },
+    );
+  };
 
   const ubicacion = payload.ubicacion === "otro"
     ? (payload.otraUbicacion || "")
@@ -282,9 +304,9 @@ export async function exportMantenimientoDocx(
     children: [
       p([run("NIVEL DE", { bold: true, size: 16 })], AlignmentType.CENTER, { before: 0, after: 0 }),
       p([run("PRIORIDAD", { bold: true, size: 16 })], AlignmentType.CENTER, { before: 0, after: 60 }),
-      p([run(ck("Urgente"),    { size: 18 })], AlignmentType.LEFT, { before: 10, after: 10 }),
-      p([run(ck("Importante"), { size: 18 })], AlignmentType.LEFT, { before: 10, after: 10 }),
-      p([run(ck("Normal"),     { size: 18 })], AlignmentType.LEFT, { before: 10, after: 10 }),
+      nivelLinea("Urgente"),
+      nivelLinea("Importante"),
+      nivelLinea("Normal"),
     ],
   });
 
@@ -308,7 +330,7 @@ export async function exportMantenimientoDocx(
               borders:       box(),
               verticalAlign: VerticalAlign.CENTER,
               margins:       { top: 40, bottom: 40, left: 100, right: 80 },
-              children: [p([run("No. de Orden: ", { bold: true, size: 20 }), run(payload.noOrden || "", { size: 20 })])],
+              children: [p([run("No. de Orden: ", { bold: true, size: 20 }), run(ticket.id, { size: 20 })])],
             })],
           })],
         }),
@@ -338,7 +360,7 @@ export async function exportMantenimientoDocx(
               fieldCell("Código:", payload.codigo || "", RIGHT, { borders: bdr(false, true, false, true) }),
             ] }),
             new TableRow({ children: [
-              fieldCell("Departamento:", "", LEFT, { borders: bdr(false, true, true, false) }),
+              fieldCell("Departamento:", opts.departamento ?? "", LEFT, { borders: bdr(false, true, true, false) }),
               fieldCell("Ubicación:", ubicacion, RIGHT, { borders: bdr(false, true, false, true) }),
             ] }),
           ],
@@ -407,7 +429,6 @@ export async function exportMantenimientoDocx(
               borders: box(),
               margins: { top: 60, bottom: 60, left: 80, right: 80 },
               children: [
-                p([run("(Ampliar sobre el trabajo realizado y su estatus)", { italic: true, color: "808080" })], undefined, { before: 0, after: 60 }),
                 p([run(payload.observaciones || "")], undefined, { before: 0, after: 0 }),
               ],
             })],
@@ -429,7 +450,7 @@ export async function exportMantenimientoDocx(
                 borders: box(),
                 verticalAlign: VerticalAlign.CENTER,
                 margins: { top: 40, bottom: 40, left: 80, right: 80 },
-                children: [p([run("Recibe conforme: ", { bold: true }), run("(Firma de quien recibe)", { italic: true, color: "808080" })])],
+                children: [p([run("Recibe conforme: ", { bold: true }), run(ticket.createdBy ?? "")])],
               }),
               new TableCell({
                 width: { size: CW - Math.round(CW * 0.66), type: WidthType.DXA },

@@ -13,6 +13,7 @@ import {
   ChevronDown, Pencil, Trash2, X, Check, Settings, Download,
 } from "lucide-react";
 import { exportMantenimientoDocx } from "../../lib/exportMantenimiento";
+import { departmentLabel } from "../../config/catalog";
 import type { SolicitudMantenimientoPayload } from "../../forms/SolicitudMantenimientoForm";
 import { useState, useRef, useEffect, useMemo } from "react";
 import { type User as AssigneeUser } from "../Organisms/AssigneePicker";
@@ -158,6 +159,10 @@ export default function TicketDetail() {
   }, [dispatch, id]);
 
   const ticket = tickets.find((t) => t.id === id) ?? tickets[0];
+
+  // Solicitante completo: el ticket sólo trae el nombre, el departamento de origen
+  // está en el usuario (lo necesita el Word de mantenimiento).
+  const creador = allUsers.find((u) => u.id === ticket?.createdById);
 
   // Permission flags derived from permissions.ts
   const canEdit        = ticket ? canEditTicket(currentUser, ticket)  : false;
@@ -436,7 +441,11 @@ export default function TicketDetail() {
                             ...(formDef.defaultValue as Record<string, unknown>),
                             ...(ticket.payload as Record<string, unknown> ?? {}),
                           } as SolicitudMantenimientoPayload;
-                          await exportMantenimientoDocx(ticket, merged);
+                          await exportMantenimientoDocx(ticket, merged, {
+                            departamento: creador?.originDepartmentId
+                              ? departmentLabel(creador.originDepartmentId)
+                              : "",
+                          });
                         } finally {
                           setExporting(false);
                         }

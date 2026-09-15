@@ -1,4 +1,8 @@
-# Cambios pendientes — Categoría Mantenimiento y Seguridad (FOR-077)
+# Cambios — Categoría Mantenimiento y Seguridad (FOR-077)
+
+> ✅ **YA IMPLEMENTADO.** Los 8 cambios están aplicados en el código de ambos repos.
+> Este documento queda como referencia de qué se cambió y por qué; **no hay que volver a
+> aplicarlo**.
 
 > **Qué es este documento:** la especificación completa de 7 cambios sobre la categoría
 > `solicitud-mantenimiento` (departamento `mantenimiento-seguridad`) y sobre el Word
