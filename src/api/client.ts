@@ -156,6 +156,8 @@ export type AnnouncementBody = {
   body: string;
   ctaText?: string | null;
   ctaUrl?: string | null;
+  /** Imágenes como data-URLs comprimidas; "[imagen N]" en el cuerpo marca su lugar. */
+  images?: string[] | null;
 };
 
 export type AnnouncementResult = {
@@ -183,6 +185,7 @@ export type AnnouncementDetail = AnnouncementSummary & {
   body: string;
   ctaText: string | null;
   ctaUrl: string | null;
+  images: string[];
   html: string;
 };
 
@@ -480,7 +483,8 @@ export const api = {
   getAnnouncementRecipients: (userId: string) =>
     request<{ count: number }>("/announcements/recipients", userId),
 
-  previewAnnouncement: (userId: string, body: AnnouncementBody) =>
+  // La vista previa no recibe las imágenes, solo cuántas hay (ver AnnouncementsPanel).
+  previewAnnouncement: (userId: string, body: Omit<AnnouncementBody, "images"> & { imageCount?: number }) =>
     request<{ html: string }>("/announcements/preview", userId, {
       method: "POST",
       body: JSON.stringify(body),

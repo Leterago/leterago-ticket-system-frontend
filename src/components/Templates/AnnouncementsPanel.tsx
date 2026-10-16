@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Send, FlaskConical, Bold, List, Loader2, Megaphone, CheckCircle2, AlertTriangle, X } from "lucide-react";
+import { Send, FlaskConical, Bold, List, Loader2, Megaphone, CheckCircle2, AlertTriangle, X, ImagePlus } from "lucide-react";
 import { api, ApiError, type AnnouncementBody, type AnnouncementResult } from "../../api/client";
 import { useAppDispatch, useCurrentUser } from "../../store/hooks";
 import AnnouncementHistory from "../Organisms/AnnouncementHistory";
 import { notify } from "../../store/notificationsSlice";
+import { compressImage, IMAGE_MAX_BYTES } from "../../lib/compressImage";
 
 // Pestaña "Comunicados" de Configuración (permiso announcements.send): redactar un
 // correo para TODOS los usuarios activos, p. ej. para anunciar funciones nuevas.
@@ -13,7 +14,19 @@ import { notify } from "../../store/notificationsSlice";
 // navegador hasta que se envía.
 
 const DRAFT_KEY = "mesa_announcement_draft";
-const EMPTY: AnnouncementBody = { subject: "", body: "", ctaText: "", ctaUrl: "" };
+const EMPTY: AnnouncementBody = { subject: "", body: "", ctaText: "", ctaUrl: "", images: [] };
+
+// Imágenes: mismo tope que el backend (MAX_IMAGES / MAX_IMAGE_CHARS en
+// lib/announcements y routes/announcements). Se comprimen aquí antes de subirlas.
+const MAX_IMAGES = 4;
+const MAX_IMAGE_CHARS = 1_500_000;
+
+/** Quita los marcadores "[imagen n]" y renumera los siguientes (n+1 → n, …). */
+function removeImageMarker(body: string, n: number): string {
+  return body
+    .replace(new RegExp(`^[ \\t]*\\[imagen ${n}\\][ \\t]*\\n?`, "gim"), "")
+    .replace(/\[imagen (\d+)\]/gi, (m, d) => (Number(d) > n ? `[imagen ${Number(d) - 1}]` : m));
+}
 
 function loadDraft(): AnnouncementBody {
   try {
@@ -41,30 +54,101 @@ export default function AnnouncementsPanel() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [lastResult, setLastResult] = useState<AnnouncementResult | null>(null);
   const [historyTick, setHistoryTick] = useState(0);
+  const [addingImages, setAddingImages] = useState(false);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const images = useMemo(() => draft.images ?? [], [draft.images]);
 
   useEffect(() => {
     api.getAnnouncementRecipients(currentUser.id).then((r) => setRecipients(r.count)).catch(() => setRecipients(null));
   }, [currentUser.id]);
 
-  // Guardar el borrador (comodidad por navegador; puede no estar disponible).
+  // Guardar el borrador (comodidad por navegador; puede no estar disponible). Las
+  // imágenes pueden superar la cuota de localStorage: entonces se guarda solo el texto.
   useEffect(() => {
-    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch { /* sin almacenamiento */ }
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+    } catch {
+      try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ ...draft, images: [] })); } catch { /* sin almacenamiento */ }
+    }
   }, [draft]);
 
   // Vista previa con el HTML real del backend, con un pequeño retardo al escribir.
+  // Las imágenes no viajan (pesan): solo cuántas hay; el backend deja
+  // "preview-image:N" como src y aquí se reemplaza por la imagen real.
+  const { subject, body, ctaText, ctaUrl } = draft;
+  const imageCount = images.length;
   useEffect(() => {
     let stale = false;
     const id = window.setTimeout(() => {
       api
-        .previewAnnouncement(currentUser.id, draft)
+        .previewAnnouncement(currentUser.id, { subject, body, ctaText, ctaUrl, imageCount })
         .then((r) => { if (!stale) setPreviewHtml(r.html); })
         .catch(() => { /* se muestra la última vista previa válida */ });
     }, 400);
     return () => { stale = true; window.clearTimeout(id); };
-  }, [currentUser.id, draft]);
+  }, [currentUser.id, subject, body, ctaText, ctaUrl, imageCount]);
+
+  const previewSrcDoc = useMemo(
+    () => previewHtml.replace(/src="preview-image:(\d+)"/g, (m, n) => {
+      const img = images[Number(n) - 1];
+      return img ? `src="${img}"` : m;
+    }),
+    [previewHtml, images],
+  );
 
   const set = (patch: Partial<AnnouncementBody>) => setDraft((d) => ({ ...d, ...patch }));
+
+  // ── Imágenes ───────────────────────────────────────────────────────────────
+  // Se comprimen (≤1280 px, JPEG) y se inserta "[imagen N]" donde está el cursor.
+  const addImages = async (files: File[]) => {
+    const picked = files.filter((f) => f.type.startsWith("image/"));
+    if (picked.length === 0) return;
+    const free = MAX_IMAGES - images.length;
+    if (free <= 0) {
+      dispatch(notify({ kind: "warning", title: "Límite de imágenes", message: `Un comunicado admite hasta ${MAX_IMAGES} imágenes.` }));
+      return;
+    }
+    const tooBig = picked.filter((f) => f.size > IMAGE_MAX_BYTES);
+    const usable = picked.filter((f) => f.size <= IMAGE_MAX_BYTES).slice(0, free);
+    if (tooBig.length > 0 || picked.length - tooBig.length > free) {
+      dispatch(notify({
+        kind: "warning",
+        title: "Algunas imágenes no se agregaron",
+        message: tooBig.length > 0 ? "Cada imagen debe pesar menos de 5 MB." : `Un comunicado admite hasta ${MAX_IMAGES} imágenes.`,
+      }));
+    }
+    if (usable.length === 0) return;
+    setAddingImages(true);
+    try {
+      const compressed = (await Promise.all(usable.map((f) => compressImage(f, { maxDimension: 1280, quality: 0.8 }))))
+        .filter((d) => d.length <= MAX_IMAGE_CHARS);
+      if (compressed.length === 0) return;
+      const el = bodyRef.current;
+      setDraft((d) => {
+        const current = d.images ?? [];
+        const start = current.length + 1;
+        const markers = compressed.map((_, i) => `[imagen ${start + i}]`).join("\n");
+        const pos = el ? el.selectionEnd : d.body.length;
+        const before = d.body.slice(0, pos);
+        const after = d.body.slice(pos);
+        // Cada marcador en su propia línea.
+        const insert = `${before && !before.endsWith("\n") ? "\n" : ""}${markers}${after.startsWith("\n") ? "" : "\n"}`;
+        return { ...d, images: [...current, ...compressed], body: before + insert + after };
+      });
+    } catch {
+      dispatch(notify({ kind: "error", title: "No se pudo procesar la imagen", message: "Prueba con otro archivo." }));
+    } finally {
+      setAddingImages(false);
+    }
+  };
+
+  const removeImage = (index: number) =>
+    setDraft((d) => ({
+      ...d,
+      images: (d.images ?? []).filter((_, i) => i !== index),
+      body: removeImageMarker(d.body, index + 1),
+    }));
   const canSend = draft.subject.trim().length > 0 && draft.body.trim().length > 0 && !sending;
 
   // Ayudas de formato sobre la selección del textarea.
@@ -153,6 +237,21 @@ export default function AnnouncementsPanel() {
             <div className="flex items-center gap-1">
               <FormatButton title="Negrita (**texto**)" onClick={() => applyFormat("bold")}><Bold size={13} /></FormatButton>
               <FormatButton title="Lista (- elemento)" onClick={() => applyFormat("list")}><List size={13} /></FormatButton>
+              <FormatButton
+                title={images.length >= MAX_IMAGES ? `Máximo ${MAX_IMAGES} imágenes` : "Insertar imagen donde está el cursor"}
+                onClick={() => fileRef.current?.click()}
+                disabled={addingImages || images.length >= MAX_IMAGES}
+              >
+                {addingImages ? <Loader2 size={13} className="animate-spin" /> : <ImagePlus size={13} />}
+              </FormatButton>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                multiple
+                hidden
+                onChange={(e) => { addImages(Array.from(e.target.files ?? [])); e.target.value = ""; }}
+              />
             </div>
           </div>
           <textarea
@@ -161,12 +260,43 @@ export default function AnnouncementsPanel() {
             maxLength={10_000}
             value={draft.body}
             onChange={(e) => set({ body: e.target.value })}
+            onPaste={(e) => {
+              const files = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith("image/"));
+              if (files.length > 0) { e.preventDefault(); addImages(files); }
+            }}
+            onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
+            onDrop={(e) => {
+              const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith("image/"));
+              if (files.length > 0) { e.preventDefault(); addImages(files); }
+            }}
             placeholder={"Hola a todos,\n\nYa está disponible el **calendario de salones**:\n\n- Consulta qué salones están libres\n- Reserva arrastrando sobre el horario\n\nCualquier duda, escríbannos."}
             className={`${input} resize-y font-[inherit] leading-relaxed`}
           />
+          {images.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {images.map((src, i) => (
+                <div key={i} className="relative w-20 h-20 rounded-md overflow-hidden border border-gray-200 group">
+                  <img src={src} alt={`Imagen ${i + 1}`} className="w-full h-full object-cover" />
+                  <span className="absolute left-1 top-1 rounded bg-black/60 px-1.5 text-[10px] font-semibold text-white">
+                    {i + 1}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeImage(i)}
+                    aria-label={`Quitar imagen ${i + 1}`}
+                    title="Quitar imagen"
+                    className="absolute right-1 top-1 rounded-full bg-black/60 p-0.5 text-white opacity-80 hover:opacity-100"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <p className="text-[11px] text-gray-400">
             Deja una línea en blanco entre párrafos. <code>**texto**</code> para negrita, líneas que empiezan por{" "}
-            <code>- </code> para listas; los enlaces se detectan solos.
+            <code>- </code> para listas; los enlaces se detectan solos. Imágenes (hasta {MAX_IMAGES}): botón, pegar
+            (Ctrl+V) o arrastrar; la línea <code>[imagen N]</code> marca dónde va cada una.
           </p>
         </div>
 
@@ -237,7 +367,7 @@ export default function AnnouncementsPanel() {
         </div>
         <iframe
           title="Vista previa del comunicado"
-          srcDoc={previewHtml}
+          srcDoc={previewSrcDoc}
           sandbox=""
           className="w-full flex-1 min-h-[560px] bg-[#f3f4f6]"
         />
@@ -246,7 +376,7 @@ export default function AnnouncementsPanel() {
       <AnnouncementHistory
         refreshKey={historyTick}
         onReuse={(a) => {
-          setDraft({ subject: a.subject, body: a.body, ctaText: a.ctaText ?? "", ctaUrl: a.ctaUrl ?? "" });
+          setDraft({ subject: a.subject, body: a.body, ctaText: a.ctaText ?? "", ctaUrl: a.ctaUrl ?? "", images: a.images ?? [] });
           setLastResult(null);
           window.scrollTo({ top: 0, behavior: "smooth" });
         }}
@@ -288,15 +418,22 @@ export default function AnnouncementsPanel() {
   );
 }
 
-function FormatButton({ title, onClick, children }: { title: string; onClick: () => void; children: React.ReactNode }) {
+function FormatButton({ title, onClick, disabled = false, children }: {
+  title: string;
+  onClick: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
   return (
     <button
       type="button"
       title={title}
       aria-label={title}
+      disabled={disabled}
+      // Mantener el foco (y el cursor) en el textarea para insertar donde corresponde.
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
-      className="p-1.5 rounded text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+      className="p-1.5 rounded text-gray-500 hover:bg-gray-100 hover:text-gray-800 disabled:opacity-40 disabled:hover:bg-transparent"
     >
       {children}
     </button>

@@ -31,6 +31,10 @@ export function compressImage(
           reject(new Error("No se pudo obtener el contexto 2D del canvas"));
           return;
         }
+        // JPEG no tiene transparencia: sin fondo, un PNG transparente (p. ej. un logo)
+        // saldría con fondo negro.
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, w, h);
         ctx.drawImage(img, 0, 0, w, h);
         resolve(canvas.toDataURL("image/jpeg", quality));
       };
