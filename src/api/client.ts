@@ -77,6 +77,10 @@ export type ServerTicket = {
   payloadVersion: number | null;
   createdAt: string;
   updatedAt: string;
+  /** Último "Recordar confirmar" (solo tickets resueltos). */
+  lastConfirmReminderAt: string | null;
+  /** Desde cuándo se puede enviar otro (límite 24 h); null si ya se puede. */
+  nextConfirmReminderAt: string | null;
 };
 
 export type ServerTicketEvent = {
@@ -121,6 +125,65 @@ export type UpdateTicketBody = {
   assignedToId?: string | null;
   executionAt?: string | null;
   payload?: unknown;
+};
+
+// Reserva de salón tal como la ve el calendario. `ticketId`/`title` son null si
+// el usuario no puede ver ese ticket (solo se muestra quién ocupa el salón).
+export type ServerReservation = {
+  ticketId: string | null;
+  title: string | null;
+  salon: string;
+  fecha: string;      // YYYY-MM-DD
+  horaDesde: string;  // HH:mm
+  horaHasta: string;  // HH:mm
+  status: TicketStatus;
+  createdBy: string;
+  mine: boolean;
+  canView: boolean;
+};
+
+export type RatingLinkInfo = {
+  ticketId: string;
+  title: string;
+  status: TicketStatus;
+  requesterName: string;
+  canRate: boolean;
+  rating: { value: number; comment: string | null } | null;
+};
+
+export type AnnouncementBody = {
+  subject: string;
+  body: string;
+  ctaText?: string | null;
+  ctaUrl?: string | null;
+};
+
+export type AnnouncementResult = {
+  mailEnabled: boolean;
+  recipients: number;
+  sent: number;
+  failed: number;
+  test: boolean;
+  id: string | null;
+  historyAvailable: boolean;
+};
+
+export type AnnouncementSummary = {
+  id: string;
+  subject: string;
+  sentByName: string;
+  recipients: number;
+  sent: number;
+  failed: number;
+  mailEnabled: boolean;
+  createdAt: string;
+};
+
+export type AnnouncementDetail = AnnouncementSummary & {
+  body: string;
+  ctaText: string | null;
+  ctaUrl: string | null;
+  html: string;
 };
 
 export type ListTicketsQuery = {
@@ -393,6 +456,49 @@ export const api = {
 
   deleteComment: (userId: string, ticketId: string, commentId: string) =>
     request<void>(`/tickets/${ticketId}/comments/${commentId}`, userId, { method: "DELETE" }),
+
+  // Room reservations (calendar)
+  listReservations: (userId: string, query: { from: string; to: string }) =>
+    request<ServerReservation[]>(`/reservations${buildQuery(query)}`, userId),
+
+  // "Recordar confirmar" + confirmar calificando desde el correo (sin sesión)
+  sendConfirmReminder: (userId: string, ticketId: string) =>
+    request<{ ok: true; sentTo: string; lastConfirmReminderAt: string | null; nextConfirmReminderAt: string | null }>(
+      `/tickets/${ticketId}/confirm-reminder`, userId, { method: "POST" },
+    ),
+
+  getRatingLink: (token: string) =>
+    request<RatingLinkInfo>(`/public/rating${buildQuery({ t: token })}`, ""),
+
+  submitRatingLink: (token: string, value: number, comment: string | null) =>
+    request<{ ok: true; confirmed: boolean }>("/public/rating", "", {
+      method: "POST",
+      body: JSON.stringify({ t: token, value, comment }),
+    }),
+
+  // Comunicados a todos los usuarios (permiso announcements.send)
+  getAnnouncementRecipients: (userId: string) =>
+    request<{ count: number }>("/announcements/recipients", userId),
+
+  previewAnnouncement: (userId: string, body: AnnouncementBody) =>
+    request<{ html: string }>("/announcements/preview", userId, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  sendAnnouncement: (userId: string, body: AnnouncementBody & { test?: boolean }) =>
+    request<AnnouncementResult>("/announcements/send", userId, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  listAnnouncements: (userId: string, query: { take?: number; skip?: number } = {}) =>
+    request<{ items: AnnouncementSummary[]; total: number; take: number; skip: number }>(
+      `/announcements${buildQuery(query)}`, userId,
+    ),
+
+  getAnnouncement: (userId: string, id: string) =>
+    request<AnnouncementDetail>(`/announcements/${id}`, userId),
 
   // Catalog
   getCatalog: (userId: string) =>

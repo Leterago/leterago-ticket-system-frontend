@@ -53,6 +53,19 @@ export function canConfirm(user: AppUser, ticket: Ticket): boolean {
   return hasInDept(user, ticket.departmentId, "tickets.confirm");
 }
 
+/**
+ * Botón "Recordar confirmar": ticket resuelto y aún no confirmado, y quien lo pulsa
+ * gestiona el departamento (cambiar estado o confirmar). Espeja
+ * POST /tickets/:id/confirm-reminder. No tiene sentido recordárselo a uno mismo.
+ */
+export function canRemindConfirm(user: AppUser, ticket: Ticket): boolean {
+  return (
+    ticket.status === "completed" &&
+    ticket.createdById !== user.id &&
+    (canChangeStatus(user, ticket) || canConfirm(user, ticket))
+  );
+}
+
 export function canViewExtended(user: AppUser): boolean {
   return hasApp(user, "tickets.view_extended");
 }
@@ -98,4 +111,9 @@ export function canManageRoles(user: AppUser): boolean {
 
 export function canManageDepartments(user: AppUser): boolean {
   return hasApp(user, "config.departments.edit");
+}
+
+/** Comunicados por correo a todos los usuarios (global-only; en el seed, solo master). */
+export function canSendAnnouncements(user: AppUser): boolean {
+  return hasApp(user, "announcements.send");
 }

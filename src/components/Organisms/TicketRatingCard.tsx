@@ -7,6 +7,8 @@ type Props = {
   rating: TicketRating | null | undefined;
   /** True when the current user may submit/update the rating (creator + resolved ticket). */
   canRate: boolean;
+  /** True when rating will also confirm the ticket (status `completed`). */
+  confirms?: boolean;
   saving: boolean;
   onSubmit: (value: number, comment: string) => void;
 };
@@ -17,7 +19,7 @@ type Props = {
  * - Creator on a resolved ticket, not yet rated → interactive form.
  * - Otherwise → nothing.
  */
-export default function TicketRatingCard({ rating, canRate, saving, onSubmit }: Props) {
+export default function TicketRatingCard({ rating, canRate, confirms = false, saving, onSubmit }: Props) {
   const rated = rating != null;
   const [reRate, setReRate] = useState(false);
   const [value, setValue] = useState(rating?.value ?? 0);
@@ -46,8 +48,14 @@ export default function TicketRatingCard({ rating, canRate, saving, onSubmit }: 
 
   return (
     <div className="bg-white rounded-lg border border-gray-300 p-5">
-      <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-1">Califica este servicio</p>
-      <p className="text-xs text-gray-500 mb-3">¿Qué tan satisfecho quedaste con la resolución?</p>
+      <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-1">
+        {confirms ? "Confirma tu solicitud" : "Califica este servicio"}
+      </p>
+      <p className="text-xs text-gray-500 mb-3">
+        {confirms
+          ? "Califica la atención para confirmar que tu solicitud quedó resuelta."
+          : "¿Qué tan satisfecho quedaste con la resolución?"}
+      </p>
       <StarRating value={value} onChange={setValue} size={28} showLabel />
       <textarea
         value={comment}
@@ -63,7 +71,7 @@ export default function TicketRatingCard({ rating, canRate, saving, onSubmit }: 
         className="mt-3 w-full flex items-center justify-center gap-2 bg-[#0047AC] text-white rounded-md py-2.5 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {saving && <Loader2 size={14} className="animate-spin" />}
-        {rated ? "Actualizar calificación" : "Enviar calificación"}
+        {confirms ? "Confirmar y calificar" : rated ? "Actualizar calificación" : "Enviar calificación"}
       </button>
     </div>
   );

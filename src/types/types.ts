@@ -55,6 +55,10 @@ export type Ticket = {
   /** Satisfaction rating, grouped under one key. Null/undefined until rated. */
   rating?: TicketRating | null;
 
+  /** "Recordar confirmar": último envío y desde cuándo se puede enviar otro (24 h). */
+  lastConfirmReminderAt?: string | null;
+  nextConfirmReminderAt?: string | null;
+
   /** Category-specific data (loaded only on detail responses, undefined otherwise). */
   payload?: unknown;
   payloadVersion?: number | null;
@@ -88,7 +92,8 @@ export type TicketEventType =
   | "priority_changed"
   | "title_changed"
   | "payload_updated"
-  | "rated";
+  | "rated"
+  | "confirm_reminder";
 
 export type TicketEvent = {
   id: string;

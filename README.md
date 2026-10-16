@@ -75,6 +75,8 @@ Objeto `Ticket` en el store:
 
 > `payload` solo está hidratado en tickets que hayan pasado por `fetchTicketDetailAsync`. Los que vienen del listado tienen `payload: undefined`.
 
+> `fetchTickets` pide **todas** las páginas de `GET /tickets` (de 100 en 100) para que los filtros de la tabla trabajen sobre todos los tickets visibles. Antes solo cargaba los 100 más recientes.
+
 > **Identidad por id, nombre solo para mostrar.** `assignedToId` (y `createdById`) son los campos para comparar identidad/permisos — espejan la lógica del backend (`lib/permissions.ts` usa `assignedToId === user.id`). `assignedTo`/`createdBy` son nombres de display y **nunca** deben usarse para igualar usuarios (un rename rompería la relación).
 
 > **`rating` (calificación de satisfacción).** Objeto anidado `{ value, comment, at, by } | null` (`TicketRating` en `types.ts`), espejando la API. El átomo `StarRating` lo renderiza; `TicketRatingCard` (sidebar del detalle) lo captura — **solo el creador**, con el ticket `completed`/`confirmed`, vía `api.rateTicket` → `rateTicketAsync`. El dashboard muestra promedio + tasa de respuesta.
@@ -139,6 +141,7 @@ Algunas preferencias se guardan directamente en `localStorage` (sin Redux ni bac
 | `mesa_auth_user` | Sesión del usuario (ver el slice `auth`). |
 | `mesa_theme` | Tema `dark`/`light`. Lo **restaura un script inline en `index.html`** antes de montar React —para evitar el parpadeo (FOUC)— añadiendo la clase `.dark` a `<html>`; lo **escribe** `ThemeToggle`. Si no hay valor guardado, respeta el `prefers-color-scheme` del sistema. |
 | `mesa_tickets_view` | Vista de la lista de tickets (`compact` / `extended`) para usuarios con permiso extendido. Se lee al inicializar el estado en `Tickets.tsx` y se reescribe en cada cambio. |
+| `mesa_announcement_draft` | Borrador del comunicado (Config → Comunicados) hasta enviarlo a todos. |
 | `mesa_tickets_page_size` | Filas por página de la tabla compacta (selector "Filas" en la barra de filtros de `TicketsTable.tsx`, al extremo derecho junto a los demás dropdowns; opciones 8/15/25/50/100). Más filas ⇒ tabla más alta (no hay alto fijo). Se lee al inicializar y se reescribe al cambiar. |
 
 ---
@@ -163,6 +166,9 @@ El gating es **por permiso** (alcance estricto: estos códigos solo cuentan desd
 | **Roles y Permisos** | `admin.roles.create` / `admin.roles.edit` | `canManageRoles` ↔ `requirePerm` |
 | **Usuarios** | `users.manage` | `canManageUsers` ↔ `requirePermission("users.manage")` |
 | **Departamentos** | `config.departments.edit` | `canManageDepartments` ↔ `requirePermission("config.departments.edit")` |
+| **Comunicados** | `announcements.send` | `canSendAnnouncements` ↔ `requirePermission("announcements.send")` |
+
+La pestaña **Comunicados** (`components/Templates/AnnouncementsPanel.tsx`, en el seed solo `master`) redacta un correo para **todos los usuarios activos**. Tiene asunto, mensaje (con botones de negrita y lista sobre la selección) y un botón opcional con enlace. La **vista previa** es un `iframe` aislado (`sandbox`) con el HTML real que devuelve `POST /announcements/preview`. "Enviarme una prueba" lo manda solo a quien escribe; "Enviar a todos (N)" pide confirmación en un modal. El borrador se guarda en `localStorage` (`mesa_announcement_draft`) hasta que se envía a todos. Debajo está el **historial** (`components/Organisms/AnnouncementHistory.tsx`): fecha, asunto, autor y resultado ("87 / 87 enviados", o los que fallaron). Al hacer clic se abre el correo tal como se envió, con la opción **"Usar como borrador"** para copiarlo al editor.
 
 La pestaña **Usuarios** es un **editor de la lista de asignaciones** del usuario (`{ rol, departamento | Global }`): `create/updateUser` envían `assignments: [{ roleName, departmentId|null }]`. La pestaña Notificaciones siempre se incluye. Dentro de ella, `ALL_NOTIF_OPTIONS` aún filtra qué preferencias se muestran según el `role` derivado (uso cosmético).
 
@@ -171,6 +177,16 @@ La pestaña **Usuarios** es un **editor de la lista de asignaciones** del usuari
 ## Departamento de origen (registro + tabla de usuarios)
 
 El registro autoservicio (`RegisterPage`) incluye un dropdown **"Departamento de origen"** (requerido) con **todos los departamentos** (`DEPARTMENTS` en `config/catalog.ts`) más **"Otro"** (→ `originDepartmentId: null`). La columna **"Departamentos"** de la tabla de usuarios (Config → Usuarios) muestra **solo el departamento de origen** (`departmentLabel(u.originDepartmentId)`), no los departamentos de acceso; `null` se muestra como "Otro". Un departamento sin categorías (hoy todos salvo `compras`, `servicios-generales` y `mantenimiento-seguridad`) es un departamento normal que **aún** no aparece en la creación/filtros de tickets — eso se deriva en vivo de sus categorías (`DEPARTMENT_IDS_WITH_CATEGORIES`), no es una clasificación fija; al recibir una categoría aparece automáticamente. El editor de usuarios en Config ofrece todos los departamentos como origen y como acceso.
+
+---
+
+## Filtro por fechas y "Recordar confirmar" (tabla de tickets)
+
+- **Filtro "Fecha"** (`DateRangeFilter` en `TicketsTable.tsx`, en las vistas compacta y extendida): filtra por **fecha de creación** (día local), con atajos (Hoy, Últimos 7/30 días, Este mes, Mes pasado, Este año) y un rango personalizado Desde/Hasta (cualquiera de los dos puede quedar vacío). Se aplica en el cliente junto con los demás filtros y "Limpiar filtros" lo reinicia.
+- **Calificar confirma**: cuando el solicitante califica un ticket `completed`, el backend lo pasa a `confirmed`. `TicketRatingCard` lo anuncia ("Confirma tu solicitud" / "Confirmar y calificar") y `rateTicketAsync` muestra "¡Solicitud confirmada!".
+- **"Recordar confirmar"** (`components/Organisms/ConfirmReminderButton.tsx`): para tickets **resueltos (`completed`)** creados por otra persona, si quien mira puede cambiar estado o confirmar en ese departamento (`canRemindConfirm` en `store/permissions.ts`, espejo del backend). Aparece como campana en la columna "Acción" de la vista compacta, junto a "Confirmar" en "Pendiente de Confirmación" (vista extendida) y como tarjeta "Confirmación pendiente" en el detalle. Llama a `api.sendConfirmReminder`, que envía al solicitante un **correo** pidiéndole que confirme, con estrellas enlazadas (se confirma calificando). **Máximo uno cada 24 h por ticket:** mientras `ticket.nextConfirmReminderAt` no haya pasado, el botón se muestra como reloj desactivado, con "Recordatorio enviado hace X. Podrás enviar otro en Y h." (en el detalle, "Disponible en Y h"). Tras enviar, `setConfirmReminder` actualiza el store sin recargar; el resultado (o el límite de 24 h) se muestra como notificación. La campana del NavBar y los toasts siguen siendo locales: no hay notificaciones push en el servidor.
+- **Filtro "Solicitante"** (vista extendida, cabecera de "Pendiente de Confirmación"): lista solo a quienes tienen tickets resueltos sin confirmar, con su cantidad ("Wendy Castillo (4)"), de más a menos. Filtra por `createdById` y solo esa sección. Al elegir a alguien, el título pasa a "Pendiente de Confirmación · <nombre>", pensado para hacer una captura y enviársela. "Limpiar filtros" lo reinicia.
+- **Confirmar desde el correo** (`/calificar`, `components/Pages/RateByLinkPage.tsx`): página **pública** (fuera de `RootTemplate`, funciona con o sin sesión). Lee `?t=` (token firmado) y `?v=` (estrella elegida en el correo, preseleccionada), muestra el ticket y guarda solo al pulsar "Confirmar y calificar" (`api.getRatingLink` / `api.submitRatingLink`, sin `x-user-id`).
 
 ---
 
@@ -191,13 +207,24 @@ Los eventos se obtienen por demanda en `GET /tickets/:id/events` y se almacenan 
 }
 ```
 
-Tipos posibles: `created`, `status_changed`, `assigned`, `unassigned`, `priority_changed`, `title_changed`, `payload_updated`.
+Tipos posibles: `created`, `status_changed`, `assigned`, `unassigned`, `priority_changed`, `title_changed`, `payload_updated`, `rated`, `confirm_reminder`.
 
 ---
 
 ## Cambio de estado: requiere asignación
 
 El selector **Estado** de la página de detalle (`TicketDetailPage`) **deshabilita** las opciones que avanzan el ticket —`En progreso`, `Resuelto`, `Confirmado`— mientras el ticket **no tenga un asignado**, con un *tooltip* ("Asigna el ticket a alguien antes de avanzar su estado."). `Pendiente` y `Cancelado` siempre quedan disponibles. Espeja la validación del backend (`statusRequiresAssignee` en `lib/catalog.ts`, aplicada en `PATCH /tickets/:id`): aunque se forzara el cambio, la API responde `400`. El modo edición no incluye control de estado, así que el `BoxDropdown` de Estado es la **única** vía de transición en la UI.
+
+---
+
+## Reserva de salones y calendario
+
+La categoría `solicitud-reunion` reserva un salón; el backend rechaza choques (`409`, ver README del backend). En el frontend:
+
+- **Formulario** (`src/forms/SolicitudReunionForm.tsx`): salón desde `SALONES` (`config/catalog.ts`, con color), horas en selectores de 30 min (al mover el inicio se conserva la duración, como Teams), **duración calculada**. Debajo de los campos, un aviso de **disponibilidad en vivo** (libre / ocupado con la reserva que choca / horario pasado) que además sugiere los salones libres en esa franja. Más abajo, el calendario embebido: filtrado al salón elegido, salta a la fecha elegida y permite **arrastrar** para fijar fecha y horas.
+- **Calendario** (`components/Organisms/RoomCalendar.tsx`): estilo Teams — vistas Día / Semana laboral / Semana, rejilla de 30 min, línea roja de "ahora", pasado atenuado, chips para filtrar por salón, reservas solapadas en columnas. Las reservas **pendientes** van rayadas. Las que el usuario no puede ver muestran solo "Reservado" + quién reservó. Datos: `useRoomReservations(from, to)` → `GET /reservations`.
+- **Página `/salones`** (`RoomCalendarPage`, en el `SideBar` para todos): calendario completo. Quien puede crear en el departamento de la categoría (`creatableDepartmentIds`) elige una franja y pasa a `/create-ticket?category=solicitud-reunion&fecha=&desde=&hasta=` con todo rellenado (`initialValue` del registro de formularios).
+- **Registro de formularios** (`forms/registry.ts`): entradas con `initialValue(params)` (prefill desde la URL) y `validate(value, original?)` (bloquea el envío en `NewTicketFormPage` y el guardado en `TicketDetailPage`). Al editar, si el backend rechaza el cambio, el detalle **sigue en modo edición** para no perder lo escrito.
 
 ---
 

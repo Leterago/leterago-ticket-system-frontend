@@ -3,11 +3,12 @@ import { createPortal } from "react-dom";
 import {
   Plus, Pencil, Trash2, X, Shield, Users, User, Settings,
   ShieldCheck, ChevronRight, Check, Loader2, AlertCircle, Building2,
-  UserX, UserCheck, Clock, Search, ChevronDown, Bell,
+  UserX, UserCheck, Clock, Search, ChevronDown, Bell, Megaphone,
 } from "lucide-react";
 import PageHeader from "../Molecules/PageHeader";
 import { useAppDispatch, useAppSelector, useCurrentUser } from "../../store/hooks";
-import { canManageUsers, canManageRoles, canManageDepartments } from "../../store/permissions";
+import { canManageUsers, canManageRoles, canManageDepartments, canSendAnnouncements } from "../../store/permissions";
+import AnnouncementsPanel from "../Templates/AnnouncementsPanel";
 import {
   fetchUsers,
   createUserAsync,
@@ -24,7 +25,7 @@ import type { RoleDefinition, PermissionsByModule, PermissionEntry, ServerDepart
 
 // ─── Tab navigation ───────────────────────────────────────────────────────────
 
-type Tab = "usuarios" | "roles" | "departamentos" | "notificaciones";
+type Tab = "usuarios" | "roles" | "departamentos" | "comunicados" | "notificaciones";
 
 export default function ConfigPage() {
   const currentUser = useCurrentUser();
@@ -37,6 +38,7 @@ export default function ConfigPage() {
     if (canManageUsers(currentUser))       tabs.push({ id: "usuarios",      label: "Usuarios",         icon: <User size={14} /> });
     if (canManageRoles(currentUser))       tabs.push({ id: "roles",         label: "Roles y Permisos", icon: <ShieldCheck size={14} /> });
     if (canManageDepartments(currentUser)) tabs.push({ id: "departamentos", label: "Departamentos",    icon: <Building2 size={14} /> });
+    if (canSendAnnouncements(currentUser)) tabs.push({ id: "comunicados",   label: "Comunicados",      icon: <Megaphone size={14} /> });
     tabs.push({ id: "notificaciones", label: "Notificaciones", icon: <Bell size={14} /> });
     return tabs;
   }, [currentUser]);
@@ -74,6 +76,7 @@ export default function ConfigPage() {
       {activeTab === "usuarios"       && <UsersTab newUserTick={newUserTick} />}
       {activeTab === "roles"          && <RolesTab />}
       {activeTab === "departamentos"  && <DepartamentosTab />}
+      {activeTab === "comunicados"    && <AnnouncementsPanel />}
       {activeTab === "notificaciones" && <NotificacionesTab />}
     </div>
   );
@@ -469,6 +472,7 @@ const MODULE_LABELS: Record<string, string> = {
   tickets: "Tickets",
   users:   "Usuarios",
   admin:   "Roles",
+  announcements: "Comunicados",
 };
 
 

@@ -61,6 +61,8 @@ function adaptServerTicket(t: ServerTicket): Ticket {
     payloadVersion: t.payloadVersion,
     createdAt: t.createdAt,
     updatedAt: t.updatedAt,
+    lastConfirmReminderAt: t.lastConfirmReminderAt ?? null,
+    nextConfirmReminderAt: t.nextConfirmReminderAt ?? null,
   };
 }
 
@@ -79,8 +81,17 @@ export const fetchTickets = createAsyncThunk<
 >("tickets/fetch", async (_, { getState, rejectWithValue }) => {
   try {
     const userId = requireUserId(getState());
-    const list = await api.listTickets(userId, { take: 100 });
-    return list.items.map(adaptServerTicket);
+    // El backend pagina de a 100 como máximo: se piden todas las páginas para que los
+    // filtros de la tabla (fechas, estado…) trabajen sobre todos los tickets visibles,
+    // no solo sobre los 100 más recientes.
+    const PAGE = 100;
+    const items: ServerTicket[] = [];
+    for (let skip = 0; ; skip += PAGE) {
+      const page = await api.listTickets(userId, { take: PAGE, skip });
+      items.push(...page.items);
+      if (page.items.length < PAGE || items.length >= page.total) break;
+    }
+    return items.map(adaptServerTicket);
   } catch (e) {
     return rejectWithValue(e instanceof ApiError ? e.message : "Network error");
   }
@@ -190,12 +201,15 @@ export const rateTicketAsync = createAsyncThunk<
 >("tickets/rate", async ({ id, value, comment }, { getState, dispatch, rejectWithValue }) => {
   try {
     const userId = requireUserId(getState());
+    const prevStatus = getState().tickets.tickets.find((t) => t.id === id)?.status;
     const server = await api.rateTicket(userId, id, { value, comment: comment?.trim() || null });
     const next = adaptServerTicket(server);
+    // Calificar un ticket resuelto lo confirma (lo hace el backend).
+    const confirmed = prevStatus === "completed" && next.status === "confirmed";
     dispatch(notify({
       kind: "success",
-      title: "¡Gracias por tu calificación!",
-      message: `Ticket ${next.id}`,
+      title: confirmed ? "¡Solicitud confirmada!" : "¡Gracias por tu calificación!",
+      message: confirmed ? `${next.id} quedó confirmado. Gracias por tu calificación.` : `Ticket ${next.id}`,
       link: `/ticket-detail/${next.id}`,
     }));
     return next;
@@ -252,6 +266,17 @@ const ticketsSlice = createSlice({
     },
     clearMutationError: (state) => {
       state.mutationError = null;
+    },
+    /** Tras "Recordar confirmar": refleja el envío sin recargar el ticket. */
+    setConfirmReminder: (
+      state,
+      action: { payload: { id: string; lastConfirmReminderAt: string | null; nextConfirmReminderAt: string | null } },
+    ) => {
+      const t = state.tickets.find((x) => x.id === action.payload.id);
+      if (t) {
+        t.lastConfirmReminderAt = action.payload.lastConfirmReminderAt;
+        t.nextConfirmReminderAt = action.payload.nextConfirmReminderAt;
+      }
     },
   },
   extraReducers: (builder) => {
@@ -321,5 +346,5 @@ const ticketsSlice = createSlice({
   },
 });
 
-export const { clearCreateError, clearMutationError } = ticketsSlice.actions;
+export const { clearCreateError, clearMutationError, setConfirmReminder } = ticketsSlice.actions;
 export default ticketsSlice.reducer;

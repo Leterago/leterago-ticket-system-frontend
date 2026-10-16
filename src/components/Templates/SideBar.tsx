@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { CirclePlus, LayoutDashboard, Ticket, Settings } from "lucide-react";
+import { CirclePlus, LayoutDashboard, Ticket, Settings, CalendarDays } from "lucide-react";
 import Tap from "../Atoms/Tap";
 import ThemeToggle from "../Atoms/ThemeToggle";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -14,6 +14,7 @@ const allTaps: { label: string; path: string; icon: ReactNode; show: (u: AppUser
   { label: "Dashboard",     path: "/",          icon: <LayoutDashboard size={18} />, show: (u) => canViewDashboard(u) },
   { label: "Tickets",       path: "/tickets",   icon: <Ticket size={18} />,          show: () => true },
   { label: "Nuevo Ticket",  path: "/new-ticket",icon: <CirclePlus size={18} />,      show: () => true },
+  { label: "Salones",       path: "/salones",   icon: <CalendarDays size={18} />,    show: () => true },
   { label: "Configuración", path: "/config",    icon: <Settings size={18} />,        show: () => true },
 ];
 

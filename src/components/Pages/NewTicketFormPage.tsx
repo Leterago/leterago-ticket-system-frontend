@@ -33,11 +33,13 @@ export default function NewTicketFormPage() {
 
   // Category-specific form (registered in src/forms/registry.ts)
   const formDef = useMemo(() => getCategoryForm(categoryId), [categoryId]);
-  const [payload, setPayload] = useState<unknown>(formDef?.defaultValue);
+  const initialPayload = () => (formDef?.initialValue ? formDef.initialValue(params) : formDef?.defaultValue);
+  const [payload, setPayload] = useState<unknown>(initialPayload);
 
   // Reset payload state when navigating between categories
   useEffect(() => {
-    setPayload(formDef?.defaultValue);
+    setPayload(initialPayload());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [categoryId, formDef]);
 
   // canAssign needs a mock ticket to check permissions; we use the dept
@@ -66,6 +68,8 @@ export default function NewTicketFormPage() {
     const e: Record<string, string> = {};
     if (!title.trim())       e.title       = "El título es obligatorio.";
     if (!description.trim()) e.description = "La descripción es obligatoria.";
+    const payloadError = formDef?.validate?.(payload);
+    if (payloadError) e.payload = payloadError;
     return e;
   };
 
@@ -196,7 +200,10 @@ export default function NewTicketFormPage() {
           </div>
 
           {formDef && (
-            <formDef.Component value={payload} onChange={setPayload} />
+            <formDef.Component
+              value={payload}
+              onChange={(next) => { setPayload(next); setErrors((p) => ({ ...p, payload: "" })); }}
+            />
           )}
         </div>
 
@@ -213,6 +220,12 @@ export default function NewTicketFormPage() {
             assignedTo={assignedTo}
             onAssignedToChange={setAssignedTo}
           />
+
+          {errors.payload && (
+            <div className="bg-amber-50 border border-amber-200 rounded-md p-3 text-sm text-amber-800">
+              {errors.payload}
+            </div>
+          )}
 
           {createError && (
             <div className="bg-red-50 border border-red-200 rounded-md p-3 text-sm text-red-700">

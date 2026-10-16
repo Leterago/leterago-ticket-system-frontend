@@ -6,4 +6,6 @@ export interface CategoryFormProps<T = unknown> {
   readOnly?: boolean;
   /** When true, post-creation sections (e.g. execution log) are rendered. */
   showExecSection?: boolean;
+  /** Ticket que se está editando (undefined al crear). */
+  ticketId?: string;
 }

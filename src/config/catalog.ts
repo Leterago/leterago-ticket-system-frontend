@@ -157,3 +157,23 @@ export function getCategoriesForDepartments(deptIds: DepartmentId[]): CategoryId
   });
   return Array.from(set);
 }
+
+// ─── Salones (reserva de salones) ─────────────────────────────────────────────
+// Espejo de SALONES en el backend (src/lib/catalog.ts): el `name` es el valor que
+// se guarda en payload.salon y con el que se detectan los choques. El color
+// identifica al salón en el calendario.
+export interface SalonDef {
+  name: string;
+  color: string;
+}
+
+export const SALONES: SalonDef[] = [
+  { name: "Salón Rodolfo Wehe",        color: "#4F6BED" },
+  { name: "Salón Area de Finanza",     color: "#038387" },
+  { name: "Salón Servicio al Cliente", color: "#8764B8" },
+  { name: "Salón P&C",                 color: "#CA5010" },
+];
+
+export function salonColor(name: string): string {
+  return SALONES.find((s) => s.name === name)?.color ?? "#64748B";
+}

@@ -11,6 +11,8 @@ import Tickets from "./components/Pages/Tickets";
 import DashboardPage from "./components/Pages/DashboardPage";
 import TicketDetail from "./components/Pages/TicketDetailPage";
 import ConfigPage from "./components/Pages/ConfigPage";
+import RoomCalendarPage from "./components/Pages/RoomCalendarPage";
+import RateByLinkPage from "./components/Pages/RateByLinkPage";
 import { useAppDispatch, useAppSelector } from "./store/hooks";
 import { fetchUsers } from "./store/usersSlice";
 import { fetchTickets } from "./store/ticketsSlice";
@@ -35,6 +37,8 @@ function AppRoutes() {
       path: "/forgot-password",
       element: currentUser ? <Navigate to="/" replace /> : <ForgotPasswordPage />,
     },
+    // Calificar desde el correo: pública, con o sin sesión (el token del enlace autoriza).
+    { path: "/calificar", element: <RateByLinkPage /> },
     {
       path: "/",
       element: currentUser ? <RootTemplate /> : <Navigate to="/login" replace />,
@@ -45,6 +49,7 @@ function AppRoutes() {
         { path: "/create-ticket",     element: <NewTicketFormPage /> },
         { path: "/ticket-detail/:id", element: <TicketDetail /> },
         { path: "/ticket-detail",     element: <TicketDetail /> },
+        { path: "/salones",           element: <RoomCalendarPage /> },
         { path: "/config",            element: <ConfigPage /> },
       ],
     },

@@ -17,13 +17,15 @@ import { departmentLabel } from "../../config/catalog";
 import type { SolicitudMantenimientoPayload } from "../../forms/SolicitudMantenimientoForm";
 import { useState, useRef, useEffect, useMemo } from "react";
 import { type User as AssigneeUser } from "../Organisms/AssigneePicker";
-import { canEditTicket, canChangeStatus, canAssign, canConfirm, canChangeStatusInDept } from "../../store/permissions";
+import { canEditTicket, canChangeStatus, canAssign, canConfirm, canChangeStatusInDept, canRemindConfirm } from "../../store/permissions";
+import ConfirmReminderButton from "../Organisms/ConfirmReminderButton";
 import { getCategoryForm } from "../../forms/registry";
 import TicketDetailsPanel from "../Organisms/TicketDetailsPanel";
 import TicketRatingCard from "../Organisms/TicketRatingCard";
 import TicketComments from "../Organisms/TicketComments";
 import { formatDateTime } from "../../lib/formatDate";
 import { api } from "../../api/client";
+import { notify } from "../../store/notificationsSlice";
 import type { TicketEvent } from "../../types/types";
 
 const statusOptions: TicketStatus[] = ["pending", "in_progress", "completed", "confirmed", "canceled"];
@@ -51,6 +53,7 @@ function eventDisplay(e: TicketEvent): { title: string; color: string } {
     case "title_changed":    return { title: "Título actualizado",                          color: "bg-gray-400"    };
     case "payload_updated":  return { title: "Detalles actualizados",                       color: "bg-purple-400"  };
     case "rated":            return { title: `Calificado con ${e.to} ★`,                    color: "bg-amber-400"   };
+    case "confirm_reminder": return { title: "Recordatorio de confirmación enviado",        color: "bg-sky-400"     };
     default:                 return { title: e.type,                                        color: "bg-gray-400"    };
   }
 }
@@ -182,6 +185,8 @@ export default function TicketDetail() {
     setRatingSaving(true);
     try {
       await dispatch(rateTicketAsync({ id: ticket.id, value, comment }));
+      // Calificar un ticket resuelto lo confirma: refrescar la actividad.
+      api.listEvents(currentUser.id, ticket.id).then(setEvents).catch(() => {});
     } finally {
       setRatingSaving(false);
     }
@@ -278,7 +283,15 @@ export default function TicketDetail() {
   };
 
   const saveEdit = async () => {
-    await dispatch(updateTicketAsync({
+    if (formDef?.validate) {
+      const original = { ...(formDef.defaultValue as Record<string, unknown>), ...(ticket.payload as Record<string, unknown> ?? {}) };
+      const payloadError = formDef.validate(editPayload, original);
+      if (payloadError) {
+        dispatch(notify({ kind: "warning", title: "Revisa los detalles de la solicitud", message: payloadError }));
+        return;
+      }
+    }
+    const result = await dispatch(updateTicketAsync({
       id: ticket.id,
       changes: {
         title:        editTitle,
@@ -289,6 +302,9 @@ export default function TicketDetail() {
         payload:      formDef ? editPayload : undefined,
       },
     }));
+    // Si el backend rechaza (p. ej. el salón ya está reservado), seguir editando
+    // para no perder los cambios; el error ya se mostró como notificación.
+    if (!updateTicketAsync.fulfilled.match(result)) return;
     setEditing(false);
     api.listEvents(currentUser.id, ticket.id).then(setEvents).catch(() => {});
   };
@@ -466,6 +482,7 @@ export default function TicketDetail() {
                   onChange={editing ? setEditPayload : () => {}}
                   readOnly={!editing}
                   showExecSection={true}
+                  ticketId={ticket.id}
                 />
               </div>
             )}
@@ -525,11 +542,28 @@ export default function TicketDetail() {
               />
             )}
 
+            {/* Recordar al solicitante que confirme (ticket resuelto sin confirmar) */}
+            {!editing && canRemindConfirm(currentUser, ticket) && (
+              <div className="bg-white rounded-lg border border-gray-300 p-5 flex flex-col gap-3">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Confirmación pendiente</p>
+                <p className="text-sm text-gray-500">
+                  {ticket.createdBy} aún no ha confirmado que la solicitud quedó resuelta. Puedes enviarle un correo
+                  para que la confirme calificando la atención.
+                </p>
+                <ConfirmReminderButton
+                  ticket={ticket}
+                  variant="full"
+                  onSent={() => api.listEvents(currentUser.id, ticket.id).then(setEvents).catch(() => {})}
+                />
+              </div>
+            )}
+
             {/* Satisfaction rating */}
             {!editing && (
               <TicketRatingCard
                 rating={ticket.rating}
                 canRate={canRate}
+                confirms={ticket.status === "completed"}
                 saving={ratingSaving}
                 onSubmit={submitRating}
               />
